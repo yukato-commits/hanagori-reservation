@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>夏花氷 at MAPRIL — ご予約</title>
+
+<!-- ============================================================
+  夏花氷 at MAPRIL — 予約システム（Supabase + Vercel 本番版）
+  
+  デプロイ前に必ず以下を設定してください：
+  1. SUPABASE_URL    → Supabase Dashboard > Settings > API > Project URL
+  2. SUPABASE_KEY    → Supabase Dashboard > Settings > API Keys > Publishable Key
+  3. RESEND_API_KEY  → resend.com のAPIキー（メール送信用）
+  
+  Vercel へのデプロイ方法：
+  1. vercel.com にログイン → New Project
+  2. このHTMLファイルを /public/index.html として配置
+  3. Environment Variables に上記3つを設定
+  ============================================================ -->
+
+<!-- Supabase SDK (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Noto+Serif+JP:wght@200;300;400&family=DM+Mono:wght@300;400&family=Noto+Sans+JP:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --lilac:#b89ac8;--lilac-light:#e8ddf2;--lilac-pale:#f5f0fa;--lilac-deep:#8b6aaa;
+  --rose:#d4867a;--rose-light:#f2dbd8;
+  --cream:#fdfaf6;--cream2:#f7f2ea;
+  --sage:#6abfa0;--sage-light:#e4eee7;
+  --gold:#c8a96e;--gold-light:#f0e6cf;
+  --ink:#2a2028;--ink2:#5a4d5c;--mist:#9d8fa8;
+  --border:#e2d6ec;
+  --danger:#b05050;
+  --shadow:0 8px 40px rgba(90,60,110,.12);
+  --shadow-sm:0 2px 16px rgba(90,60,110,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--cream);color:var(--ink);line-height:1.75;font-weight:300;}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(ellipse 60% 40% at 15% 20%,rgba(184,154,200,.10) 0%,transparent 60%),
+    radial-gradient(ellipse 50% 60% at 85% 80%,rgba(212,134,122,.08) 0%,transparent 60%);}
+.page{position:relative;z-index:1;display:none;}.page.active{display:block;}
+
+/* CONFIG BANNER */
+.config-banner{background:#1c1c2e;color:#a0a0c0;padding:12px 20px;font-family:'DM Mono',monospace;font-size:11px;text-align:center;display:none;}
+.config-banner.show{display:block;}
+.config-banner a{color:#b89ac8;text-decoration:underline;}
+
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(253,250,246,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 48px;height:68px;}
+.nav-logo{display:flex;flex-direction:column;cursor:pointer;}
+.nav-logo-en{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:11px;letter-spacing:.4em;color:var(--mist);}
+.nav-logo-jp{font-family:'Noto Serif JP',serif;font-size:16px;letter-spacing:.18em;color:var(--ink);font-weight:300;}
+.nav-links{display:flex;align-items:center;gap:28px;}
+.nav-link{font-size:12px;letter-spacing:.1em;color:var(--ink2);cursor:pointer;padding:5px 0;border-bottom:1px solid transparent;transition:all .25s;font-family:'Noto Serif JP',serif;}
+.nav-link:hover{color:var(--lilac-deep);border-bottom-color:var(--lilac);}
+.nav-btn{background:var(--lilac-deep);color:white;border:none;padding:9px 24px;border-radius:100px;font-size:12px;font-family:'Noto Serif JP',serif;letter-spacing:.12em;cursor:pointer;transition:all .25s;}
+.nav-btn:hover{background:var(--rose);transform:translateY(-1px);}
+
+/* HERO */
+.hero{min-height:calc(100vh - 68px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:100px 40px 80px;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background-image:radial-gradient(ellipse 70% 50% at 20% 30%,rgba(184,154,200,.12) 0%,transparent 55%),radial-gradient(ellipse 60% 60% at 80% 70%,rgba(212,134,122,.10) 0%,transparent 55%);pointer-events:none;}
+.hero-badge{display:inline-block;font-family:'Cormorant Garamond',serif;font-style:italic;font-size:10px;letter-spacing:.45em;color:var(--lilac);margin-bottom:28px;animation:fadeUp .9s ease both;}
+.hero-title{font-family:'Noto Serif JP',serif;font-size:clamp(38px,6vw,72px);font-weight:200;letter-spacing:.14em;line-height:1.25;margin-bottom:12px;animation:fadeUp .9s .12s ease both;}
+.hero-title em{font-style:italic;font-family:'Cormorant Garamond',serif;font-size:clamp(52px,8vw,96px);color:var(--lilac-deep);font-weight:300;display:block;}
+.hero-sub{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:18px;color:var(--mist);letter-spacing:.15em;margin-bottom:44px;animation:fadeUp .9s .22s ease both;}
+.hero-pills{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:52px;animation:fadeUp .9s .32s ease both;}
+.hero-pill{background:white;border:1px solid var(--border);border-radius:100px;padding:8px 20px;font-size:11px;letter-spacing:.12em;color:var(--ink2);display:flex;align-items:center;gap:7px;}
+.pill-dot{width:5px;height:5px;border-radius:50%;}
+.hero-cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;animation:fadeUp .9s .42s ease both;}
+.hero-scroll{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);font-family:'Cormorant Garamond',serif;font-style:italic;font-size:11px;color:var(--mist);letter-spacing:.25em;animation:sB 2.5s ease-in-out infinite;}
+@keyframes sB{0%,100%{transform:translateX(-50%) translateY(0);}50%{transform:translateX(-50%) translateY(7px);}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
+@keyframes popIn{from{opacity:0;transform:scale(.4);}to{opacity:1;transform:scale(1);}}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+@keyframes slideUp{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:translateY(0);}}
+
+/* SECTIONS */
+.about-section{padding:120px 40px;max-width:1000px;margin:0 auto;}
+.section-eyebrow{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:12px;letter-spacing:.35em;color:var(--lilac);margin-bottom:16px;}
+.section-title{font-family:'Noto Serif JP',serif;font-size:clamp(24px,3.5vw,38px);font-weight:200;letter-spacing:.1em;line-height:1.5;margin-bottom:22px;}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;}
+.about-card{background:white;border:1px solid var(--border);border-radius:20px;padding:28px 22px;transition:transform .25s,box-shadow .25s;}
+.about-card:hover{transform:translateY(-5px);box-shadow:var(--shadow);}
+.about-card-icon{font-size:22px;margin-bottom:12px;}
+.about-card-title{font-family:'Noto Serif JP',serif;font-size:14px;font-weight:300;margin-bottom:7px;}
+.about-card-body{font-size:12px;color:var(--mist);line-height:1.8;}
+.how-section{padding:120px 40px;background:linear-gradient(160deg,var(--lilac-pale) 0%,var(--cream) 60%,var(--rose-light) 100%);}
+.how-inner{max-width:720px;margin:0 auto;}
+.step-item{display:flex;gap:20px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--border);}
+.step-item:last-child{border-bottom:none;}
+.step-num{flex-shrink:0;width:32px;height:32px;border-radius:50%;background:var(--lilac-deep);color:white;display:flex;align-items:center;justify-content:center;font-family:'Cormorant Garamond',serif;font-size:14px;margin-top:4px;}
+.step-title{font-family:'Noto Serif JP',serif;font-size:14px;font-weight:300;margin-bottom:4px;}
+.step-desc{font-size:12px;color:var(--mist);line-height:1.8;}
+
+/* BUTTONS */
+.btn-primary{background:var(--lilac-deep);color:white;border:none;padding:14px 36px;border-radius:100px;font-size:13px;font-family:'Noto Serif JP',serif;letter-spacing:.12em;cursor:pointer;transition:all .25s;}
+.btn-primary:hover{background:var(--rose);transform:translateY(-2px);}
+.btn-outline{background:transparent;color:var(--ink);border:1px solid var(--ink);padding:13px 32px;border-radius:100px;font-size:13px;font-family:'Noto Serif JP',serif;letter-spacing:.12em;cursor:pointer;transition:all .25s;}
+.btn-outline:hover{border-color:var(--lilac-deep);color:var(--lilac-deep);}
+.btn-next{background:var(--lilac-deep);color:white;border:none;padding:12px 28px;border-radius:100px;font-size:13px;font-family:'Noto Serif JP',serif;letter-spacing:.1em;cursor:pointer;transition:all .25s;}
+.btn-next:hover{background:var(--lilac);}
+.btn-next:disabled{opacity:.3;pointer-events:none;}
+.btn-back{background:transparent;color:var(--ink2);border:1px solid var(--border);padding:11px 22px;border-radius:100px;font-size:13px;font-family:'Noto Serif JP',serif;cursor:pointer;transition:all .2s;}
+.btn-back:hover{border-color:var(--lilac);color:var(--lilac-deep);}
+.btn-confirm{background:linear-gradient(135deg,var(--lilac-deep),var(--rose));color:white;border:none;padding:15px 38px;border-radius:100px;font-size:14px;font-family:'Noto Serif JP',serif;letter-spacing:.14em;cursor:pointer;transition:all .25s;box-shadow:0 4px 18px rgba(184,154,200,.35);}
+.btn-confirm:hover{transform:translateY(-2px);}
+.btn-confirm:disabled{opacity:.28;pointer-events:none;box-shadow:none;}
+.btn-danger{background:var(--danger);color:white;border:none;padding:10px 22px;border-radius:100px;font-size:12px;font-family:'Noto Serif JP',serif;cursor:pointer;}
+
+/* RESERVE */
+.reserve-wrap{max-width:620px;margin:0 auto;padding:52px 22px 90px;}
+.reserve-header{text-align:center;margin-bottom:30px;}
+.reserve-eyebrow{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:11px;letter-spacing:.4em;color:var(--lilac);margin-bottom:8px;}
+.reserve-title{font-family:'Noto Serif JP',serif;font-size:26px;font-weight:200;letter-spacing:.14em;}
+.step-bar{display:flex;align-items:center;justify-content:center;margin-bottom:34px;}
+.sb-item{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1;min-width:0;}
+.sb-dot{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--border);background:white;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--mist);transition:all .3s;}
+.sb-item.done .sb-dot{background:var(--sage);border-color:var(--sage);color:white;}
+.sb-item.active .sb-dot{background:var(--lilac-deep);border-color:var(--lilac-deep);color:white;box-shadow:0 0 0 4px rgba(139,106,170,.15);}
+.sb-label{font-size:8.5px;color:var(--mist);white-space:nowrap;font-family:'Noto Serif JP',serif;}
+.sb-item.active .sb-label{color:var(--lilac-deep);font-weight:400;}
+.sb-line{flex:1;height:1px;background:var(--border);margin:0 3px;transform:translateY(-8px);min-width:6px;}
+
+/* FORM */
+.form-card{background:white;border:1px solid var(--border);border-radius:24px;padding:34px 30px;box-shadow:var(--shadow-sm);animation:fadeUp .3s ease both;position:relative;overflow:hidden;}
+.form-card::after{content:'';position:absolute;top:-40px;right:-40px;width:120px;height:120px;border-radius:50%;background:var(--lilac-pale);opacity:.5;pointer-events:none;}
+.form-eyebrow{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:10px;letter-spacing:.35em;color:var(--lilac);margin-bottom:5px;}
+.form-title{font-family:'Noto Serif JP',serif;font-size:20px;font-weight:200;letter-spacing:.1em;margin-bottom:4px;}
+.form-subtitle{font-size:12px;color:var(--mist);margin-bottom:22px;padding-bottom:18px;border-bottom:1px solid var(--border);line-height:1.7;}
+.form-group{margin-bottom:15px;}
+.form-label{display:block;font-size:10.5px;letter-spacing:.15em;color:var(--mist);margin-bottom:6px;font-family:'Noto Serif JP',serif;}
+.form-input{width:100%;padding:11px 15px;border:1.5px solid var(--border);border-radius:12px;font-size:13px;font-family:'Noto Sans JP',sans-serif;color:var(--ink);background:var(--cream);outline:none;transition:border-color .2s;}
+.form-input:focus{border-color:var(--lilac);background:white;box-shadow:0 0 0 3px rgba(184,154,200,.12);}
+.form-select{width:100%;padding:11px 38px 11px 15px;border:1.5px solid var(--border);border-radius:12px;font-size:13px;font-family:'Noto Sans JP',sans-serif;color:var(--ink);background:var(--cream);outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1 1l4.5 4.5L10 1' stroke='%239d8fa8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.form-actions{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:24px;flex-wrap:wrap;}
+.form-note{font-size:11px;color:var(--mist);margin-top:5px;line-height:1.7;}
+.input-static{padding:11px 15px;background:var(--lilac-pale);border:1px solid var(--border);border-radius:12px;font-size:13px;color:var(--ink2);}
+.divider{height:1px;background:var(--border);margin:20px 0;}
+
+/* ERROR STATE */
+.err-box{background:#fde8eb;border:1px solid #f5b8c0;border-radius:12px;padding:12px 16px;font-size:12px;color:var(--danger);margin-bottom:14px;line-height:1.7;}
+
+/* CALENDAR */
+.ecal{background:white;border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:var(--shadow-sm);}
+.ecal-head{padding:16px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,var(--lilac-deep),var(--lilac));}
+.ecal-head-title{font-family:'Cormorant Garamond',serif;font-size:16px;color:white;letter-spacing:.15em;}
+.ecal-nav{background:rgba(255,255,255,.2);border:none;border-radius:8px;width:30px;height:30px;color:white;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s;}
+.ecal-nav:hover{background:rgba(255,255,255,.35);}
+.ecal-dow{display:grid;grid-template-columns:repeat(7,1fr);padding:10px 12px 4px;gap:2px;}
+.ecal-dow-cell{text-align:center;font-size:9.5px;color:var(--mist);font-family:'Cormorant Garamond',serif;}
+.ecal-days{display:grid;grid-template-columns:repeat(7,1fr);padding:0 12px 12px;gap:4px;}
+.ecd{aspect-ratio:1;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:1px solid transparent;transition:all .15s;}
+.ecd.click{cursor:pointer;border-color:var(--border);background:var(--cream);}
+.ecd.click:hover{border-color:var(--lilac);background:var(--lilac-pale);}
+.ecd.sel{background:var(--lilac-deep);border-color:var(--lilac-deep);color:white;}
+.ecd.sel .ecd-dot{background:rgba(255,255,255,.8)!important;}
+.ecd.past,.ecd.closed{opacity:.2;pointer-events:none;}
+.ecd.full{opacity:.45;pointer-events:none;}
+.ecd-day{font-family:'Cormorant Garamond',serif;font-size:13px;line-height:1;}
+.ecd-dot{width:4px;height:4px;border-radius:50%;}
+.ecd.st-open .ecd-dot{background:var(--sage);}
+.ecd.st-extra .ecd-dot{background:var(--gold);}
+.ecd.st-full .ecd-dot{background:var(--rose);}
+.ecal-legend{display:flex;gap:14px;flex-wrap:wrap;padding:9px 14px;border-top:1px solid var(--border);font-size:10px;color:var(--mist);}
+.ecal-legend-item{display:flex;align-items:center;gap:5px;font-family:'Noto Serif JP',serif;}
+.ecal-legend-dot{width:6px;height:6px;border-radius:50%;}
+
+/* PARTY */
+.party-selector{display:flex;align-items:center;gap:26px;justify-content:center;padding:22px 0 10px;}
+.party-btn{width:40px;height:40px;border-radius:50%;border:1.5px solid var(--border);background:white;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;color:var(--ink2);}
+.party-btn:hover{border-color:var(--lilac);color:var(--lilac-deep);}
+.party-count{font-family:'Cormorant Garamond',serif;font-size:52px;min-width:58px;text-align:center;line-height:1;}
+.party-unit{font-family:'Noto Serif JP',serif;font-size:12px;color:var(--mist);text-align:center;margin-top:2px;}
+.party-info{background:var(--lilac-pale);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--ink2);line-height:2;margin-top:4px;border:1px solid var(--lilac-light);}
+
+/* TIME */
+.time-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px;}
+.tslot{border:1.5px solid var(--border);border-radius:11px;padding:8px 4px;text-align:center;cursor:pointer;transition:all .15s;background:var(--cream);}
+.tslot:hover{border-color:var(--lilac);background:var(--lilac-pale);}
+.tslot.sel{background:var(--lilac-deep);border-color:var(--lilac-deep);color:white;}
+.tslot-time{font-family:'DM Mono',monospace;font-size:11.5px;line-height:1;}
+.tslot-sub{font-size:9px;color:var(--mist);margin-top:2px;}
+.tslot.sel .tslot-sub{color:rgba(255,255,255,.55);}
+
+/* OTP */
+.otp-inputs{display:flex;gap:9px;justify-content:center;margin:20px 0;}
+.otp-input{width:44px;height:52px;text-align:center;font-size:21px;font-family:'DM Mono',monospace;border:1.5px solid var(--border);border-radius:12px;outline:none;transition:border-color .2s;background:var(--cream);color:var(--ink);}
+.otp-input:focus{border-color:var(--lilac);background:white;}
+
+/* TABLE MAP */
+.tmap{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0;}
+.tmap-cell{border:1.5px solid var(--border);border-radius:10px;padding:9px 5px;text-align:center;font-family:'DM Mono',monospace;font-size:11px;background:white;}
+.tmap-cell.c1p{border-color:var(--lilac);background:var(--lilac-pale);color:var(--lilac-deep);}
+.tmap-cell.c-solo{border-color:var(--mist);background:var(--cream2);}
+.tmap-cell.c-alpha{border-color:var(--sage);background:var(--sage-light);color:#2a6a4a;}
+.tmap-cell.c-beta{border-color:var(--gold);background:var(--gold-light);color:#6a4a10;}
+.tmap-cell.c-booked{background:var(--lilac-deep);color:white;border-color:var(--lilac-deep);}
+.tmap-cell.c-booked2{background:var(--rose);color:white;border-color:var(--rose);}
+.tmap-label{font-size:8.5px;margin-top:2px;opacity:.75;}
+
+/* MENU */
+.menu-item-preview{background:var(--cream);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;}
+.mip-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;}
+.mip-name{font-family:'Noto Serif JP',serif;font-size:14px;font-weight:300;}
+.mip-price{font-family:'DM Mono',monospace;font-size:12px;color:var(--rose);}
+.mip-desc{font-size:12px;color:var(--ink2);margin-bottom:6px;line-height:1.7;}
+.allergy-tag{display:inline-block;background:var(--gold-light);color:#7a5a20;border-radius:100px;padding:2px 9px;font-size:10px;}
+
+/* TERMS */
+.terms-scroll{background:var(--cream);border:1px solid var(--border);border-radius:12px;padding:14px 16px;max-height:150px;overflow-y:auto;font-size:11px;color:var(--ink2);line-height:1.95;margin-bottom:12px;}
+.terms-check{display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 16px;background:white;border:1.5px solid var(--border);border-radius:12px;transition:all .2s;}
+.terms-check.ok{border-color:var(--sage);background:var(--sage-light);}
+.terms-check input{accent-color:var(--sage);width:16px;height:16px;cursor:pointer;flex-shrink:0;}
+.terms-check-label{font-size:12px;color:var(--ink2);font-family:'Noto Serif JP',serif;}
+
+/* MYPAGE */
+.mypage-wrap{max-width:560px;margin:0 auto;padding:56px 22px 90px;}
+.res-card{background:white;border:1px solid var(--border);border-radius:20px;padding:24px;box-shadow:var(--shadow-sm);}
+.res-id{font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);margin-bottom:8px;}
+.res-main{font-family:'Noto Serif JP',serif;font-size:15px;font-weight:300;margin-bottom:4px;}
+.res-sub{font-size:12px;color:var(--ink2);margin-top:3px;}
+.sbadge{display:inline-flex;align-items:center;padding:3px 12px;border-radius:100px;font-size:10.5px;font-family:'Noto Serif JP',serif;}
+.sbadge-ok{background:var(--sage-light);color:#3a6b4a;}
+.sbadge-ng{background:var(--rose-light);color:#7a3030;}
+
+/* ADMIN */
+.admin-wrap{max-width:1200px;margin:0 auto;padding:36px 26px 80px;}
+.admin-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+.admin-title{font-family:'Noto Serif JP',serif;font-size:22px;font-weight:300;}
+.admin-tabs{display:flex;gap:3px;margin-bottom:24px;background:var(--cream2);border:1px solid var(--border);border-radius:12px;padding:4px;flex-wrap:wrap;}
+.admin-tab{padding:7px 16px;border-radius:9px;font-size:12px;cursor:pointer;color:var(--ink2);transition:all .15s;border:none;background:none;font-family:'Noto Serif JP',serif;}
+.admin-tab.active{background:var(--lilac-deep);color:white;}
+.admin-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px;}
+.astat{background:white;border:1px solid var(--border);border-radius:14px;padding:14px 16px;}
+.astat-label{font-size:10px;color:var(--mist);letter-spacing:.12em;margin-bottom:4px;font-family:'Noto Serif JP',serif;}
+.astat-val{font-family:'DM Mono',monospace;font-size:22px;color:var(--ink);}
+.res-table-wrap{overflow-x:auto;}
+.res-table{width:100%;border-collapse:collapse;font-size:12px;}
+.res-table th{background:var(--cream2);border-bottom:1px solid var(--border);padding:8px 12px;text-align:left;font-size:10px;color:var(--mist);letter-spacing:.12em;font-weight:300;white-space:nowrap;font-family:'Noto Serif JP',serif;}
+.res-table td{border-bottom:1px solid var(--border);padding:10px 12px;white-space:nowrap;}
+.res-table tr:hover td{background:var(--lilac-pale);}
+.month-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+.month-tab{background:white;border:1px solid var(--border);border-radius:100px;padding:5px 14px;font-size:11px;cursor:pointer;font-family:'DM Mono',monospace;transition:all .15s;}
+.month-tab.active{background:var(--lilac-deep);color:white;border-color:var(--lilac-deep);}
+.admin-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:10px;}
+.admin-cal-dow{text-align:center;font-size:9.5px;color:var(--mist);padding:3px 0;font-family:'Cormorant Garamond',serif;}
+.acd{border:1px solid var(--border);border-radius:10px;padding:7px 5px;min-height:66px;cursor:pointer;transition:all .15s;background:white;}
+.acd:hover{border-color:var(--lilac);background:var(--lilac-pale);}
+.acd.acd-empty{border:none;background:transparent;pointer-events:none;}
+.acd.acd-off{background:var(--cream2);opacity:.6;}
+.acd-day{font-family:'Cormorant Garamond',serif;font-size:13px;margin-bottom:3px;}
+.acd-st{font-size:9px;border-radius:100px;padding:1px 5px;display:inline-block;}
+.acd-st.on{background:var(--sage-light);color:#3a6b4a;}.acd-st.off{background:var(--cream2);color:var(--mist);}
+.acd-extra{font-size:9px;color:var(--gold);margin-top:1px;}
+.acd-cnt{font-size:9px;color:var(--rose);margin-top:1px;}
+
+/* MODAL */
+.modal-backdrop{position:fixed;inset:0;background:rgba(42,32,40,.42);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .2s ease;}
+.modal-box{background:white;border-radius:22px;padding:28px 26px;max-width:480px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(90,60,110,.2);animation:slideUp .25s ease;}
+.modal-title{font-family:'Noto Serif JP',serif;font-size:18px;font-weight:300;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);}
+.modal-actions{display:flex;gap:9px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap;}
+
+/* LOADING */
+.loading-overlay{position:fixed;inset:0;z-index:200;background:rgba(253,250,246,.92);backdrop-filter:blur(10px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+.loading-text{font-family:'Noto Serif JP',serif;font-size:13px;color:var(--mist);letter-spacing:.2em;}
+.loading-dots{display:flex;gap:7px;}
+.ld{width:7px;height:7px;border-radius:50%;background:var(--lilac);animation:ldp 1.3s infinite ease-in-out;}
+.ld:nth-child(2){animation-delay:.2s;}.ld:nth-child(3){animation-delay:.4s;}
+@keyframes ldp{0%,80%,100%{opacity:.15;transform:scale(.75);}40%{opacity:1;transform:scale(1);}}
+
+@media(max-width:640px){
+  nav{padding:0 18px;}
+  .form-card{padding:22px 18px;}
+  .form-row{grid-template-columns:1fr;}
+  .about-section,.how-section{padding:80px 20px;}
+  .reserve-wrap{padding:36px 14px 70px;}
+  .admin-wrap{padding:24px 14px 60px;}
+  .hero{padding:80px 24px 60px;}
+}
+</style>
+</head>
+<body>
+
+<!-- 設定未完了時のバナー -->
+<div class="config-banner" id="configBanner">
+  ⚠️ Supabase の接続設定が必要です。
+  <code>SUPABASE_URL</code> と <code>SUPABASE_KEY</code> を設定してください。
+  <a href="#" onclick="showPage('admin');return false">管理画面へ</a>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay" style="display:none">
+  <div style="font-size:28px">🌸</div>
+  <div class="loading-dots"><div class="ld"></div><div class="ld"></div><div class="ld"></div></div>
+  <div class="loading-text" id="loadingText">処理中</div>
+</div>
+<div id="modalRoot"></div>
+
+<nav>
+  <div class="nav-logo" onclick="showPage('top')">
+    <div class="nav-logo-en">flower parlour</div>
+    <div class="nav-logo-jp">夏花氷 at MAPRIL</div>
+  </div>
+  <div class="nav-links">
+    <span class="nav-link" onclick="scrollTo2('about')">について</span>
+    <span class="nav-link" onclick="scrollTo2('how')">予約方法</span>
+    <span class="nav-link" onclick="showPage('mypage')">マイページ</span>
+    <button class="nav-btn" onclick="showPage('reserve')">ご予約</button>
+  </div>
+</nav>
+
+<!-- TOP -->
+<div id="page-top" class="page active"><div style="padding-top:68px">
+<div class="hero">
+  <div class="hero-badge">MAPRIL × Summer 2026</div>
+  <div class="hero-title">パティシエが彩る<br><em>夏花氷</em></div>
+  <div class="hero-sub">— Flower Parlour Kakigori —</div>
+  <div class="hero-pills">
+    <div class="hero-pill"><div class="pill-dot" style="background:var(--lilac)"></div>大阪 期間限定</div>
+    <div class="hero-pill"><div class="pill-dot" style="background:var(--rose)"></div>完全予約制</div>
+    <div class="hero-pill"><div class="pill-dot" style="background:var(--sage)"></div>11:00〜17:00</div>
+    <div class="hero-pill"><div class="pill-dot" style="background:var(--gold)"></div>最大4名様</div>
+  </div>
+  <div class="hero-cta">
+    <button class="btn-primary" onclick="showPage('reserve')">ご予約はこちら</button>
+    <button class="btn-outline" onclick="scrollTo2('about')">イベントについて</button>
+  </div>
+  <div class="hero-scroll">scroll</div>
+</div>
+<div id="about" class="about-section">
+  <div class="section-eyebrow">about the event</div>
+  <div class="section-title">特別な夏の一杯を<br>あなたへ</div>
+  <div class="card-grid">
+    <div class="about-card"><div class="about-card-icon">🧊</div><div class="about-card-title">天然氷</div><div class="about-card-body">ふわふわと溶ける上質な天然氷をご提供します</div></div>
+    <div class="about-card"><div class="about-card-icon">🌸</div><div class="about-card-title">手づくりシロップ</div><div class="about-card-body">旬の素材を活かした自家製シロップ</div></div>
+    <div class="about-card"><div class="about-card-icon">🎨</div><div class="about-card-title">アート的ビジュアル</div><div class="about-card-body">MAPRILならではの美しいデコレーション</div></div>
+    <div class="about-card"><div class="about-card-icon">📍</div><div class="about-card-title">大阪・期間限定</div><div class="about-card-body">会場詳細は予約確定メールにてご案内</div></div>
+  </div>
+</div>
+<div id="how" class="how-section"><div class="how-inner">
+  <div class="section-eyebrow">how to reserve</div>
+  <div class="section-title" style="margin-bottom:32px">予約の流れ</div>
+  <div class="step-item"><div class="step-num">1</div><div><div class="step-title">開催日・人数・時間を選択</div><div class="step-desc">カレンダーから開催日を選び、人数（1〜4名）と時間帯をお選びください。</div></div></div>
+  <div class="step-item"><div class="step-num">2</div><div><div class="step-title">メールアドレス入力・OTP認証</div><div class="step-desc">メールアドレスに届いた6桁コードで本人確認します。</div></div></div>
+  <div class="step-item"><div class="step-num">3</div><div><div class="step-title">お客様情報・メニュー選択</div><div class="step-desc">お名前・電話番号・メニューを入力して利用規約に同意し、予約を完了します。</div></div></div>
+  <div class="step-item"><div class="step-num">4</div><div><div class="step-title">当日・お支払い</div><div class="step-desc">予約番号を提示のうえ当日店舗でお支払い（Square / 現金）。</div></div></div>
+  <div style="margin-top:36px;text-align:center"><button class="btn-primary" onclick="showPage('reserve')">ご予約ページへ</button></div>
+</div></div>
+</div></div>
+
+<!-- RESERVE -->
+<div id="page-reserve" class="page" style="padding-top:68px">
+  <div class="reserve-wrap">
+    <div class="reserve-header"><div class="reserve-eyebrow">reservation</div><div class="reserve-title">ご予約</div></div>
+    <div class="step-bar" id="stepBar"></div>
+    <div id="reserveContent"></div>
+  </div>
+</div>
+
+<!-- MYPAGE -->
+<div id="page-mypage" class="page" style="padding-top:68px">
+  <div class="mypage-wrap" id="mypageContent"></div>
+</div>
+
+<!-- ADMIN -->
+<div id="page-admin" class="page" style="padding-top:68px">
+  <div class="admin-wrap" id="adminContent"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  ★★★ ここに Supabase の接続情報を入力してください ★★★
+//  Supabase Dashboard > Settings > API から取得
+// ══════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://uitakcerfvplwzxjxyrb.supabase.co';  // ← 変更
+const SUPABASE_KEY = 'sb_publishable_ccJx-APo0PCY_3AcZtggCw_VnzaTeRi';              // ← 変更
+// ══════════════════════════════════════════════════════════
+
+// Supabaseクライアント初期化
+const { createClient } = supabase;
+let sb = null;
+let isConfigured = false;
+
+function initSupabase() {
+  if(SUPABASE_URL.includes('YOUR_PROJECT') || SUPABASE_KEY.includes('YOUR_')) {
+    document.getElementById('configBanner').classList.add('show');
+    return false;
+  }
+  try {
+    sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+    isConfigured = true;
+    return true;
+  } catch(e) {
+    console.error('Supabase init error:', e);
+    return false;
+  }
+}
+
+// ══════════════════════════════════════
+// テーブル定義
+// ══════════════════════════════════════
+// 1・2番：1名席（単独）
+// 3番  ：2名席（単独・連結不可）
+// 4〜6番：2名席 グループα（2卓連結可）
+// 7〜9番：2名席 グループβ（2卓連結可）
+// 10番 ：2名席（単独・連結不可）
+const TABLES = {
+  1:{type:'1P',group:'s1'},2:{type:'1P',group:'s2'},
+  3:{type:'2P',group:'s3'},
+  4:{type:'2P',group:'alpha'},5:{type:'2P',group:'alpha'},6:{type:'2P',group:'alpha'},
+  7:{type:'2P',group:'beta'},8:{type:'2P',group:'beta'},9:{type:'2P',group:'beta'},
+  10:{type:'2P',group:'s10'},
+};
+
+const SHIFTS = {
+  A:{label:'Aシフト（人数×5分）', fn:p=>p*5},
+  B:{label:'Bシフト（1-2名=5分 / 3-4名=10分）', fn:p=>p<=2?5:10},
+};
+const USE_BASE=40, JOIN_OFFSET=10, JOIN_USE_2ND=50, MACHINE_PER=5;
+
+function toMin(t){const[h,m]=t.split(':').map(Number);return h*60+m;}
+function fromMin(m){return`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;}
+function fmtDate(d){
+  if(!d)return'';
+  const[y,mo,day]=d.split('-');
+  const wd=['日','月','火','水','木','金','土'][new Date(d).getDay()];
+  return`${y}年${+mo}月${+day}日（${wd}）`;
+}
+
+function assignTables(party, occ) {
+  if(party===1){
+    for(const n of [1,2]) if(!occ.has(n)) return [n];
+    for(const n of [3,4,5,6,7,8,9,10]) if(!occ.has(n)) return [n];
+    return null;
+  }
+  if(party===2){
+    for(const n of [3,4,5,6,7,8,9,10]) if(!occ.has(n)) return [n];
+    return null;
+  }
+  if(party===3||party===4){
+    const af=[4,5,6].filter(n=>!occ.has(n));
+    if(af.length>=2) return af.slice(0,2);
+    const bf=[7,8,9].filter(n=>!occ.has(n));
+    if(bf.length>=2) return bf.slice(0,2);
+    return null;
+  }
+  return null;
+}
+
+function occupyMinutes(party, st) {
+  const svc=SHIFTS[st||'A'].fn(party);
+  if(party<=2) return svc+USE_BASE;
+  return Math.max(svc+USE_BASE, JOIN_OFFSET+JOIN_USE_2ND);
+}
+
+function exitTime(time, party, st) {
+  const svc=SHIFTS[st||'A'].fn(party);
+  if(party<=2) return fromMin(toMin(time)+svc+USE_BASE);
+  return fromMin(toMin(time)+JOIN_OFFSET+JOIN_USE_2ND);
+}
+
+// ══════════════════════════════════════
+// インメモリキャッシュ（Supabase未接続時のフォールバック兼キャッシュ）
+// ══════════════════════════════════════
+const CACHE = {
+  eventDays: {},   // date -> {date,open,shift_type,extra_hour,menus[]}
+  reservations: [],
+  thankyouTemplate: '',
+  loaded: false,
+};
+
+// ── Supabaseからデータを読み込む ──
+async function loadData() {
+  if(!isConfigured) return loadFallbackData();
+  try {
+    // 開催日
+    const {data:days,error:de} = await sb.from('event_days').select('*');
+    if(de) throw de;
+    CACHE.eventDays = {};
+    for(const d of days) {
+      CACHE.eventDays[d.date] = {...d, menus:[]};
+    }
+
+    // メニュー
+    const {data:menus,error:me} = await sb.from('menus').select('*').order('sort_order');
+    if(me) throw me;
+    for(const m of menus) {
+      if(CACHE.eventDays[m.date]) CACHE.eventDays[m.date].menus.push(m);
+    }
+
+    // 予約（当日以前3ヶ月+未来3ヶ月）
+    const today = new Date();
+    const from = new Date(today); from.setMonth(from.getMonth()-1);
+    const to   = new Date(today); to.setMonth(to.getMonth()+3);
+    const {data:res,error:re} = await sb.from('reservations')
+      .select('*')
+      .gte('date', from.toISOString().slice(0,10))
+      .lte('date', to.toISOString().slice(0,10));
+    if(re) throw re;
+    CACHE.reservations = (res||[]).map(r=>({
+      ...r,
+      time: r.time.slice(0,5), // "11:00:00" → "11:00"
+    }));
+
+    // 設定
+    const {data:st} = await sb.from('settings').select('*');
+    const tmpl = st?.find(s=>s.key==='thankyou_template');
+    if(tmpl) CACHE.thankyouTemplate = tmpl.value;
+
+    CACHE.loaded = true;
+  } catch(e) {
+    console.error('loadData error:', e);
+    loadFallbackData();
+  }
+}
+
+function loadFallbackData() {
+  // デモデータ（Supabase未接続時）
+  const menus=[
+    {name:'宇治抹茶',description:'京都産一番茶の濃厚な抹茶シロップ',allergy:'なし',price:1680},
+    {name:'ひまわりア・ラ・モード',description:'マンゴーとパッションフルーツのシロップ',allergy:'なし',price:1800},
+    {name:'虹色の地球',description:'ミントシロップ×ホワイトチョコエスプーマ',allergy:'乳・大豆',price:1680},
+    {name:'桃とローズ',description:'白桃シロップにバラの花びら',allergy:'なし',price:1950},
+  ];
+  const today=new Date();
+  for(let i=0;i<90;i++){
+    const d=new Date(today);d.setDate(today.getDate()+i);
+    const ds=d.toISOString().slice(0,10);
+    const dow=d.getDay();
+    const open=dow===0||dow===6;
+    CACHE.eventDays[ds]={date:ds,open,shift_type:'A',extra_hour:false,menus:open?menus.map(m=>({...m})):[]};
+  }
+  CACHE.thankyouTemplate=`夏花氷 at MAPRIL ご予約ありがとうございます。\n\nご予約番号：{id}\nお名前：{name} 様\nご来店日時：{date} {time}〜\n人数：{party}名\nご使用テーブル：{tables}\n\nご注文内容：\n{orders}\n\n当日は予約番号をご提示ください。\nお支払いは当日店舗にてお受けします。\n\n— 夏花氷 at MAPRIL スタッフ一同`;
+  CACHE.loaded=true;
+}
+
+// ── 予約の保存 ──
+async function saveReservation(res) {
+  const id = 'HN-' + Math.floor(1000+Math.random()*9000);
+  const data = {
+    id, date:res.date, time:res.time+':00',
+    party:res.party, tables:res.tables,
+    last_name:res.lastName, first_name:res.firstName,
+    last_kana:res.lastKana, first_kana:res.firstKana,
+    phone:res.phone, email:res.email,
+    orders:res.orders, status:'confirmed',
+  };
+  if(isConfigured) {
+    const {error} = await sb.from('reservations').insert(data);
+    if(error) throw error;
+  }
+  CACHE.reservations.push({...data, time:res.time});
+  return id;
+}
+
+// ── キャンセル ──
+async function cancelReservation(id) {
+  if(isConfigured) {
+    const {error} = await sb.from('reservations')
+      .update({status:'cancelled', cancelled_at: new Date().toISOString()})
+      .eq('id', id);
+    if(error) throw error;
+  }
+  const idx = CACHE.reservations.findIndex(r=>r.id===id);
+  if(idx>=0) CACHE.reservations[idx].status='cancelled';
+}
+
+// ── イベント日更新（管理画面用） ──
+async function saveEventDay(date, patch) {
+  if(isConfigured) {
+    const {error} = await sb.from('event_days').upsert({date,...patch});
+    if(error) throw error;
+  }
+  if(!CACHE.eventDays[date]) CACHE.eventDays[date]={date,open:false,shift_type:'A',extra_hour:false,menus:[]};
+  Object.assign(CACHE.eventDays[date], patch);
+}
+
+// ── メニュー保存（管理画面用） ──
+async function saveMenus(date, menus) {
+  if(isConfigured) {
+    await sb.from('menus').delete().eq('date', date);
+    if(menus.length>0) {
+      const rows = menus.map((m,i)=>({...m, date, sort_order:i+1}));
+      const {error} = await sb.from('menus').insert(rows);
+      if(error) throw error;
+    }
+  }
+  if(CACHE.eventDays[date]) CACHE.eventDays[date].menus=menus;
+}
+
+// ── テンプレート保存 ──
+async function saveTemplate(tmpl) {
+  if(isConfigured) {
+    const {error} = await sb.from('settings').upsert({key:'thankyou_template',value:tmpl});
+    if(error) throw error;
+  }
+  CACHE.thankyouTemplate=tmpl;
+}
+
+// ══════════════════════════════════════
+// 空き計算ロジック
+// ══════════════════════════════════════
+function getOccupiedAt(date, timeMin, excludeId) {
+  const ev=CACHE.eventDays[date];
+  const st=ev?.shift_type||'A';
+  const occ=new Set();
+  CACHE.reservations
+    .filter(r=>r.date===date&&r.status!=='cancelled'&&r.id!==excludeId)
+    .forEach(r=>{
+      const rs=toMin(r.time),re=rs+occupyMinutes(r.party,st);
+      if(timeMin>=rs&&timeMin<re)(r.tables||[]).forEach(t=>occ.add(t));
+    });
+  return occ;
+}
+
+function getMachineNext(date, excludeId) {
+  const ev=CACHE.eventDays[date];
+  const startMin=ev?.extra_hour?10*60:11*60;
+  const sorted=CACHE.reservations
+    .filter(r=>r.date===date&&r.status!=='cancelled'&&r.id!==excludeId)
+    .sort((a,b)=>toMin(a.time)-toMin(b.time));
+  if(!sorted.length) return startMin;
+  const last=sorted[sorted.length-1];
+  return toMin(last.time)+last.party*MACHINE_PER;
+}
+
+function getSlots(date, party) {
+  const ev=CACHE.eventDays[date];
+  if(!ev||!ev.open) return [];
+  const st=ev.shift_type||'A';
+  const startMin=ev.extra_hour?10*60:11*60;
+  const closeMin=17*60;
+  const existing=CACHE.reservations.filter(r=>r.date===date&&r.status!=='cancelled');
+  const machineNext=getMachineNext(date,null);
+
+  if(existing.length===0){
+    const slots=[];
+    for(let m=startMin;m<closeMin;m+=5){
+      const endCheck=party>=3?m+JOIN_OFFSET+JOIN_USE_2ND:m+SHIFTS[st].fn(party)+USE_BASE;
+      if(endCheck>closeMin) break;
+      const occ=getOccupiedAt(date,m,null);
+      const tbls=assignTables(party,occ);
+      if(tbls) slots.push({time:fromMin(m),tables:tbls});
+    }
+    return slots;
+  }
+
+  const candidates=new Set([machineNext]);
+  existing.forEach(r=>{
+    const exitMin=toMin(r.time)+occupyMinutes(r.party,st);
+    if(exitMin>=startMin&&exitMin<closeMin) candidates.add(exitMin);
+  });
+
+  const slots=[];
+  const seen=new Set();
+  [...candidates].sort((a,b)=>a-b).forEach(m=>{
+    if(m<machineNext||m<startMin||m>=closeMin) return;
+    const endCheck=party>=3?m+JOIN_OFFSET+JOIN_USE_2ND:m+SHIFTS[st].fn(party)+USE_BASE;
+    if(endCheck>closeMin) return;
+    const occ=getOccupiedAt(date,m,null);
+    const tbls=assignTables(party,occ);
+    const t=fromMin(m);
+    if(tbls&&!seen.has(t)){slots.push({time:t,tables:tbls});seen.add(t);}
+  });
+  return slots.sort((a,b)=>toMin(a.time)-toMin(b.time));
+}
+
+function getDayStatus(date){
+  const ev=CACHE.eventDays[date];if(!ev||!ev.open)return'closed';
+  if(!getSlots(date,1).length)return'full';
+  return ev.extra_hour?'extra':'open';
+}
+
+// ══════════════════════════════════════
+// STATE
+// ══════════════════════════════════════
+const S={
+  page:'top',rStep:0,
+  r:{date:null,party:1,time:null,tables:[],email:'',
+     lastName:'',firstName:'',lastKana:'',firstKana:'',
+     phone:'',orders:[],termsOk:false,id:null},
+  calY:new Date().getFullYear(),calM:new Date().getMonth(),
+  mpResId:'',mpEmail:'',mpRes:null,
+  adminLoggedIn:false,adminTab:'calendar',
+  adminCalY:new Date().getFullYear(),adminCalM:new Date().getMonth(),
+  adminSelDate:null,adminMonthFilter:'',adminMenuDate:null,
+};
+
+function showLoad(t){document.getElementById('loadingText').textContent=t||'処理中';document.getElementById('loadingOverlay').style.display='flex';}
+function hideLoad(){document.getElementById('loadingOverlay').style.display='none';}
+function showModal(h){document.getElementById('modalRoot').innerHTML=`<div class="modal-backdrop" onclick="if(event.target===this)closeModal()">${h}</div>`;}
+function closeModal(){document.getElementById('modalRoot').innerHTML='';}
+
+function showPage(p){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-'+p).classList.add('active');
+  S.page=p;window.scrollTo(0,0);
+  if(p==='reserve'){S.rStep=0;S.r={date:null,party:1,time:null,tables:[],email:'',lastName:'',firstName:'',lastKana:'',firstKana:'',phone:'',orders:[],termsOk:false,id:null};renderReserve();}
+  if(p==='mypage') renderMypage();
+  if(p==='admin')  renderAdmin();
+}
+function scrollTo2(id){showPage('top');setTimeout(()=>{const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},80);}
+function goMypage(id,email){S.mpResId=id;S.mpEmail=email;S.mpRes=null;showPage('mypage');}
+
+// ── STEP BAR ──
+const STEP_LABELS=['日程・人数・時間','メール認証','お客様情報','完了'];
+function renderStepBar(){
+  const bar=document.getElementById('stepBar');
+  const disp=S.rStep<=2?0:S.rStep<=4?1:S.rStep<=5?2:3;
+  bar.innerHTML='';
+  STEP_LABELS.forEach((label,i)=>{
+    if(i>0){const l=document.createElement('div');l.className='sb-line';bar.appendChild(l);}
+    const item=document.createElement('div');
+    item.className='sb-item'+(i<disp?' done':'')+(i===disp?' active':'');
+    item.innerHTML=`<div class="sb-dot">${i<disp?'✓':i+1}</div><div class="sb-label">${label}</div>`;
+    bar.appendChild(item);
+  });
+}
+
+// ── TABLE MAP ──
+function tableMapHtml(sel,party){
+  const s=new Set(sel||[]);
+  const s2=party===4&&s.size===2?new Set([[...s][1]]):new Set();
+  const cells=[1,2,3,4,5,6,7,8,9,10].map(n=>{
+    let cls='tmap-cell ';
+    if(s.has(n)) cls+=s2.has(n)?'c-booked2':'c-booked';
+    else{const g=TABLES[n].group;cls+=g==='s1'||g==='s2'?'c1p':g==='alpha'?'c-alpha':g==='beta'?'c-beta':'c-solo';}
+    const lbl=s.has(n)?(s2.has(n)?'+10min':'1st'):TABLES[n].type==='1P'?'1名席':TABLES[n].group==='alpha'?'α':TABLES[n].group==='beta'?'β':'単独';
+    return`<div class="${cls}"><div>${n}番</div><div class="tmap-label">${lbl}</div></div>`;
+  });
+  return`<div class="tmap">${cells[0]}${cells[1]}${cells[2]}${cells[3]}${cells[4]}${cells[5]}${cells[6]}${cells[7]}${cells[8]}<div></div>${cells[9]}<div></div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:10px;color:var(--mist);margin-top:4px">
+    <span>■<span style="color:var(--lilac-deep)">1名席(1〜2)</span></span>
+    <span>■<span style="color:var(--sage)">α(4〜6)</span></span>
+    <span>■<span style="color:var(--gold)">β(7〜9)</span></span>
+    <span>■<span style="color:var(--mist)">単独(3・10)</span></span>
+    ${party===4?`<span>■<span style="color:var(--rose)">2卓目+10min</span></span>`:''}
+  </div>`;
+}
+
+function renderReserve(){
+  renderStepBar();
+  [rStep0,rStep1,rStep2,rStep3,rStep4,rStep5,rStep6][S.rStep](document.getElementById('reserveContent'));
+}
+
+// ── Step 0: カレンダー ──
+function rStep0(el){
+  const y=S.calY,m=S.calM;
+  const MN=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const first=new Date(y,m,1).getDay(),last=new Date(y,m+1,0).getDate();
+  const today=new Date();today.setHours(0,0,0,0);
+  let cells='';
+  for(let i=0;i<first;i++)cells+=`<div></div>`;
+  for(let d=1;d<=last;d++){
+    const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dO=new Date(ds);dO.setHours(0,0,0,0);
+    const past=dO<today,st=getDayStatus(ds),sel=S.r.date===ds;
+    let cls='ecd';
+    if(past)cls+=' past';
+    else if(st==='closed')cls+=' closed';
+    else if(st==='full')cls+=' full';
+    else cls+=' click st-'+st;
+    if(sel)cls+=' sel';
+    const ck=(st!=='closed'&&st!=='full'&&!past)?`onclick="selDate('${ds}')"`:'' ;
+    cells+=`<div class="${cls}" ${ck}><div class="ecd-day">${d}</div>${st!=='closed'?'<div class="ecd-dot"></div>':''}</div>`;
+  }
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">step 01</div>
+    <div class="form-title">開催日を選択</div>
+    <div class="form-subtitle">ご希望の開催日をカレンダーからお選びください</div>
+    <div class="ecal" style="margin-bottom:16px">
+      <div class="ecal-head"><button class="ecal-nav" onclick="calMv(-1)">‹</button><div class="ecal-head-title">${y} / ${MN[m]}</div><button class="ecal-nav" onclick="calMv(1)">›</button></div>
+      <div class="ecal-dow">${DOW.map((d,i)=>`<div class="ecal-dow-cell" style="${i===0?'color:var(--rose)':i===6?'color:var(--lilac)':''}">${d}</div>`).join('')}</div>
+      <div class="ecal-days">${cells}</div>
+      <div class="ecal-legend">
+        <div class="ecal-legend-item"><div class="ecal-legend-dot" style="background:var(--sage)"></div>受付中</div>
+        <div class="ecal-legend-item"><div class="ecal-legend-dot" style="background:var(--gold)"></div>追加枠あり</div>
+        <div class="ecal-legend-item"><div class="ecal-legend-dot" style="background:var(--rose)"></div>満席</div>
+      </div>
+    </div>
+    ${S.r.date?`<div style="margin-bottom:6px;padding:11px 16px;background:var(--lilac-pale);border-radius:12px;font-size:13px;border:1px solid var(--lilac-light)">選択中：<strong>${fmtDate(S.r.date)}</strong></div>`:''}
+    <div class="form-actions"><div></div><button class="btn-next" onclick="S.rStep=1;renderReserve()" ${!S.r.date?'disabled':''}>人数を選択 →</button></div>
+  </div>`;
+  window.calMv=d=>{S.calM+=d;if(S.calM>11){S.calM=0;S.calY++;}if(S.calM<0){S.calM=11;S.calY--;}renderReserve();};
+  window.selDate=d=>{S.r.date=d;S.r.time=null;S.r.tables=[];renderReserve();};
+}
+
+// ── Step 1: 人数 ──
+function rStep1(el){
+  const p=S.r.party,ev=CACHE.eventDays[S.r.date],st=ev?.shift_type||'A';
+  const svc=SHIFTS[st].fn(p);
+  const slots=getSlots(S.r.date,p);
+  const previewTbls=slots[0]?.tables||[];
+  let usageDesc=p<=2?`提供 <strong>${svc}分</strong>　＋　利用 <strong>40分</strong>　＝　サイクル <strong>${svc+40}分</strong>`
+    :`1卓目：提供 <strong>${svc}分</strong>＋利用 <strong>40分</strong>　2卓目：+10分スタートで <strong>50分</strong>（同時退席）`;
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">step 02</div>
+    <div class="form-title">人数を選択</div>
+    <div class="form-subtitle">${fmtDate(S.r.date)}</div>
+    <div class="party-selector">
+      <button class="party-btn" onclick="setP(${p-1})">−</button>
+      <div><div class="party-count">${p}</div><div class="party-unit">名</div></div>
+      <button class="party-btn" onclick="setP(${p+1})">+</button>
+    </div>
+    <div class="party-info"><div>${usageDesc}</div><div style="font-size:10.5px;color:var(--mist)">${SHIFTS[st].label}</div></div>
+    <div style="margin-top:14px;font-size:11px;letter-spacing:.1em;color:var(--mist);font-family:'Noto Serif JP',serif;margin-bottom:4px">使用テーブル（${p}名の場合）</div>
+    ${tableMapHtml(previewTbls,p)}
+    ${!slots.length?`<div style="margin-top:10px;padding:10px 14px;background:var(--rose-light);border-radius:10px;font-size:12px;color:var(--danger)">この人数ではこの日に空きがありません</div>`:''}
+    <div class="form-actions">
+      <button class="btn-back" onclick="S.rStep=0;renderReserve()">← 戻る</button>
+      <button class="btn-next" onclick="S.rStep=2;renderReserve()" ${!slots.length?'disabled':''}>時間を選択 →</button>
+    </div>
+  </div>`;
+  window.setP=n=>{if(n<1){alert('1名以上でご予約ください');return;}if(n>4){alert('最大4名様まで');return;}S.r.party=n;renderReserve();};
+}
+
+// ── Step 2: 時間 ──
+function rStep2(el){
+  const slots=getSlots(S.r.date,S.r.party);
+  const ev=CACHE.eventDays[S.r.date],st=ev?.shift_type||'A';
+  const svc=SHIFTS[st].fn(S.r.party);
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">step 03</div>
+    <div class="form-title">時間帯を選択</div>
+    <div class="form-subtitle">${fmtDate(S.r.date)}　${S.r.party}名様</div>
+    ${ev?.extra_hour?`<div style="background:var(--gold-light);border:1px solid #e0c87a;border-radius:10px;padding:8px 14px;font-size:11px;color:#7a5a20;margin-bottom:12px">✦ 本日は10:00〜の追加枠もご利用いただけます</div>`:''}
+    ${!slots.length?`<div style="text-align:center;padding:24px;color:var(--rose);font-family:'Noto Serif JP',serif">この日は満席です</div>`:`
+    <div style="font-size:10.5px;color:var(--mist);margin-bottom:10px">ずらし入店方式：マシンの処理順に表示されます</div>
+    <div class="time-grid">${slots.map(s=>{
+      const ex=S.r.party>=3?fromMin(toMin(s.time)+JOIN_OFFSET+JOIN_USE_2ND):fromMin(toMin(s.time)+svc+USE_BASE);
+      return`<div class="tslot${S.r.time===s.time?' sel':''}" onclick="selTime('${s.time}',${JSON.stringify(s.tables)})">
+        <div class="tslot-time">${s.time}</div>
+        <div class="tslot-sub">〜${ex}</div>
+      </div>`;
+    }).join('')}</div>`}
+    ${S.r.time?`<div style="margin-top:14px">
+      <div style="padding:10px 16px;background:var(--lilac-pale);border-radius:10px;font-size:13px;border:1px solid var(--lilac-light);margin-bottom:8px">
+        選択中：<strong style="font-family:'DM Mono',monospace">${S.r.time}</strong>　テーブル<strong>${S.r.tables.join('・')}番</strong>
+      </div>
+      ${tableMapHtml(S.r.tables,S.r.party)}
+      ${S.r.party>=3?`<div style="margin-top:8px;padding:10px 14px;background:var(--gold-light);border-radius:10px;font-size:11px;color:#7a5a20;line-height:1.8">
+        <strong>${S.r.tables[0]}番</strong>：${S.r.time}〜（退席 ${fromMin(toMin(S.r.time)+SHIFTS[st].fn(S.r.party)+USE_BASE)}）<br>
+        <strong>${S.r.tables[1]}番</strong>：${fromMin(toMin(S.r.time)+JOIN_OFFSET)}〜（退席 ${fromMin(toMin(S.r.time)+JOIN_OFFSET+JOIN_USE_2ND)}）<br>
+        <span style="font-size:10px">▸ 両テーブル同時退席：${fromMin(toMin(S.r.time)+JOIN_OFFSET+JOIN_USE_2ND)}</span>
+      </div>`:''}
+    </div>`:''}
+    <div class="form-actions" style="margin-top:20px">
+      <button class="btn-back" onclick="S.rStep=1;renderReserve()">← 戻る</button>
+      ${S.r.time?`<button class="btn-confirm" onclick="S.rStep=3;renderReserve()">この日時で予約を進める →</button>`:`<span style="font-size:11px;color:var(--mist)">時間帯をお選びください</span>`}
+    </div>
+  </div>`;
+  window.selTime=(t,tbls)=>{S.r.time=t;S.r.tables=tbls;renderReserve();};
+}
+
+// ── Step 3: メール ──
+function rStep3(el){
+  const st=CACHE.eventDays[S.r.date]?.shift_type||'A';
+  const et=exitTime(S.r.time,S.r.party,st);
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">step 04</div>
+    <div class="form-title">メールアドレス</div>
+    <div class="form-subtitle">確認コードをお送りします</div>
+    <div style="background:var(--lilac-pale);border-radius:14px;padding:15px 18px;margin-bottom:20px;font-size:13px;border:1px solid var(--lilac-light);line-height:1.9">
+      <div style="font-size:10px;color:var(--mist);letter-spacing:.15em;margin-bottom:4px;font-family:'Noto Serif JP',serif">ご予約内容</div>
+      <div><strong>${fmtDate(S.r.date)}</strong></div>
+      <div style="font-family:'DM Mono',monospace">${S.r.time}〜${et}　${S.r.party}名　テーブル${S.r.tables.join('・')}番</div>
+    </div>
+    <div class="form-group"><label class="form-label">メールアドレス</label>
+      <input class="form-input" type="email" id="r-email" placeholder="your@email.com" value="${S.r.email}" oninput="S.r.email=this.value">
+    </div>
+    <div class="form-note">ご入力のアドレスに6桁の確認コードをお送りします。予約完了後の確認メールもこちらへお届けします。</div>
+    <div class="form-actions" style="margin-top:20px">
+      <button class="btn-back" onclick="S.rStep=2;renderReserve()">← 戻る</button>
+      <button class="btn-next" onclick="sendOtp()">確認コードを送信 →</button>
+    </div>
+  </div>`;
+}
+
+async function sendOtp(){
+  const e=document.getElementById('r-email').value.trim();
+  if(!e||!e.includes('@')){alert('正しいメールアドレスをご入力ください');return;}
+  S.r.email=e;
+  // 本番ではSupabase Edge FunctionやResendでOTPを送信する
+  // デモ：ローカルに6桁コードを保存
+  window._otpCode = String(Math.floor(100000+Math.random()*900000));
+  showLoad('確認コードを送信中...');
+  // 本番メール送信処理をここに追加
+  // await sendEmailOtp(e, window._otpCode);
+  setTimeout(()=>{hideLoad();S.rStep=4;renderReserve();},1400);
+}
+
+// ── Step 4: OTP ──
+function rStep4(el){
+  el.innerHTML=`<div class="form-card" style="text-align:center">
+    <div class="form-eyebrow" style="text-align:left">step 05</div>
+    <div class="form-title" style="text-align:left">メール認証</div>
+    <div class="form-subtitle" style="text-align:left">届いた6桁のコードを入力してください</div>
+    <div style="font-size:32px;margin:10px 0 12px">📬</div>
+    <div style="font-family:'DM Mono',monospace;background:var(--lilac-pale);display:inline-block;padding:5px 16px;border-radius:8px;margin-bottom:16px;font-size:12px">${S.r.email}</div>
+    <div class="otp-inputs">${[0,1,2,3,4,5].map(()=>`<input class="otp-input" maxlength="1" type="text" inputmode="numeric">`).join('')}</div>
+    <div style="font-size:10.5px;color:var(--mist);margin-bottom:20px;font-style:italic">※ デモ環境では任意の6桁で進めます</div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+      <button class="btn-next" id="verBtn" onclick="verifyOtp()" style="min-width:200px">認証して進む →</button>
+      <button class="btn-back" style="min-width:200px" onclick="S.rStep=3;renderReserve()">← 戻る</button>
+    </div>
+  </div>`;
+  const inps=[...el.querySelectorAll('.otp-input')];
+  inps.forEach((inp,i)=>{
+    inp.addEventListener('input',()=>{inp.value=inp.value.replace(/\D/g,'');if(inp.value&&i<5)inps[i+1].focus();if(inps.map(x=>x.value).join('').length===6)document.getElementById('verBtn').style.background='var(--sage)';});
+    inp.addEventListener('keydown',e=>{if(e.key==='Backspace'&&!inp.value&&i>0)inps[i-1].focus();});
+  });
+  inps[0].focus();
+}
+
+function verifyOtp(){
+  const code=[...document.querySelectorAll('.otp-input')].map(x=>x.value).join('');
+  if(code.length<6){alert('6桁のコードを入力してください');return;}
+  // 本番: if(code !== window._otpCode) { alert('コードが違います'); return; }
+  showLoad('認証中...');setTimeout(()=>{hideLoad();S.rStep=5;renderReserve();},900);
+}
+
+// ── Step 5: 情報・メニュー・規約 ──
+function rStep5(el){
+  const ev=CACHE.eventDays[S.r.date],menus=ev?.menus||[];
+  const st=ev?.shift_type||'A';
+  const et=exitTime(S.r.time,S.r.party,st);
+  if(!S.r.orders||S.r.orders.length!==S.r.party) S.r.orders=Array(S.r.party).fill(menus[0]?.name||'');
+  const mCards=menus.length?menus.map(m=>`<div class="menu-item-preview">
+    <div class="mip-header"><div class="mip-name">${m.name}</div><div class="mip-price">¥${m.price.toLocaleString()}</div></div>
+    <div class="mip-desc">${m.description}</div>
+    ${m.allergy&&m.allergy!=='なし'?`<span class="allergy-tag">⚠ ${m.allergy}</span>`:`<span style="font-size:10px;color:var(--mist)">アレルギー：なし</span>`}
+  </div>`).join(''):'<div style="font-size:12px;color:var(--mist)">この日のメニューはまだ登録されていません</div>';
+  const orderSel=menus.length?Array.from({length:S.r.party},(_,i)=>`<div class="form-group">
+    <label class="form-label">${i+1}名目のご注文</label>
+    <select class="form-select" onchange="S.r.orders[${i}]=this.value">
+      ${menus.map(m=>`<option value="${m.name}" ${S.r.orders[i]===m.name?'selected':''}>${m.name}（¥${m.price.toLocaleString()}）</option>`).join('')}
+    </select>
+  </div>`).join(''):'';
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">step 06</div>
+    <div class="form-title">お客様情報の入力</div>
+    <div class="form-subtitle">${fmtDate(S.r.date)}　${S.r.time}〜${et}　${S.r.party}名　テーブル${S.r.tables.join('・')}番</div>
+    <div style="font-size:11px;letter-spacing:.1em;color:var(--mist);margin-bottom:10px;font-family:'Noto Serif JP',serif">お名前</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">姓</label><input class="form-input" placeholder="田中" value="${S.r.lastName}" oninput="S.r.lastName=this.value"></div>
+      <div class="form-group"><label class="form-label">名</label><input class="form-input" placeholder="花子" value="${S.r.firstName}" oninput="S.r.firstName=this.value"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">せい（ふりがな）</label><input class="form-input" placeholder="たなか" value="${S.r.lastKana}" oninput="S.r.lastKana=this.value"></div>
+      <div class="form-group"><label class="form-label">めい（ふりがな）</label><input class="form-input" placeholder="はなこ" value="${S.r.firstKana}" oninput="S.r.firstKana=this.value"></div>
+    </div>
+    <div class="form-group"><label class="form-label">当日ご連絡可能な電話番号</label><input class="form-input" type="tel" placeholder="090-0000-0000" value="${S.r.phone}" oninput="S.r.phone=this.value"></div>
+    <div class="form-group"><label class="form-label">メールアドレス（認証済み）</label><div class="input-static">${S.r.email}</div></div>
+    <div class="divider"></div>
+    <div style="font-size:13px;font-family:'Noto Serif JP',serif;font-weight:300;margin-bottom:12px">当日のメニューを事前選択</div>
+    <div style="background:var(--cream2);border-radius:14px;padding:14px;margin-bottom:14px">${mCards}</div>
+    ${orderSel}
+    <div class="divider"></div>
+    <div style="font-size:13px;font-family:'Noto Serif JP',serif;font-weight:300;margin-bottom:10px">ご利用規約</div>
+    <div class="terms-scroll">
+      <p>■ ご予約について</p>
+      <p>・本イベントは完全予約制です。</p>
+      <p>・1〜2名：40分制　3〜4名（連結テーブル）：最大50分制となります。</p>
+      <p>■ キャンセルポリシー</p>
+      <p>・当日のキャンセルはお受けできません。</p>
+      <p>・前日までのキャンセルはマイページよりお手続きください。</p>
+      <p>・キャンセル後、同人数の空き枠として自動的に再開放されます。</p>
+      <p>■ お支払いについて</p>
+      <p>・お支払いは当日店舗にてSquare決済または現金でお受けします。</p>
+      <p>■ 個人情報について</p>
+      <p>・ご入力いただいた個人情報は予約管理目的のみに使用します。</p>
+    </div>
+    <label class="terms-check" id="termsLabel" onclick="toggleTerms()">
+      <input type="checkbox" id="termsChk" ${S.r.termsOk?'checked':''}><span class="terms-check-label">上記の利用規約に同意します</span>
+    </label>
+    <div class="form-actions" style="margin-top:22px">
+      <button class="btn-back" onclick="S.rStep=4;renderReserve()">← 戻る</button>
+      <button class="btn-confirm" id="submitBtn" onclick="submitRes()" ${!S.r.termsOk?'disabled':''}>予約を完了する ✓</button>
+    </div>
+  </div>`;
+  window.toggleTerms=()=>{
+    S.r.termsOk=!S.r.termsOk;
+    const lbl=document.getElementById('termsLabel'),chk=document.getElementById('termsChk'),btn=document.getElementById('submitBtn');
+    if(lbl)lbl.className='terms-check'+(S.r.termsOk?' ok':'');
+    if(chk)chk.checked=S.r.termsOk;if(btn)btn.disabled=!S.r.termsOk;
+  };
+}
+
+async function submitRes(){
+  if(!S.r.lastName||!S.r.firstName){alert('お名前をご入力ください');return;}
+  if(!S.r.lastKana||!S.r.firstKana){alert('ふりがなをご入力ください');return;}
+  if(!S.r.phone){alert('電話番号をご入力ください');return;}
+  const occ=getOccupiedAt(S.r.date,toMin(S.r.time),null);
+  const tbls=assignTables(S.r.party,occ);
+  if(!tbls){alert('申し訳ありません。空きがなくなりました。別の時間をお選びください。');S.rStep=2;renderReserve();return;}
+  S.r.tables=tbls;
+  showLoad('予約を確定しています...');
+  try {
+    S.r.id = await saveReservation(S.r);
+    hideLoad();S.rStep=6;renderReserve();
+  } catch(e) {
+    hideLoad();alert('予約の保存に失敗しました。再度お試しください。\n'+e.message);
+  }
+}
+
+// ── Step 6: サンキュー ──
+function rStep6(el){
+  const r=S.r,st=CACHE.eventDays[r.date]?.shift_type||'A',et=exitTime(r.time,r.party,st);
+  el.innerHTML=`<div class="form-card"><div style="text-align:center;padding:24px 10px;">
+    <span style="font-size:52px;display:block;margin-bottom:14px;animation:popIn .55s cubic-bezier(.34,1.56,.64,1) both">🌸</span>
+    <div style="font-family:'Noto Serif JP',serif;font-size:22px;font-weight:200;letter-spacing:.12em;margin-bottom:8px">ご予約ありがとうございます</div>
+    <div style="font-size:12px;color:var(--ink2);line-height:2.1;margin-bottom:24px">確認メールを <strong style="font-family:'DM Mono',monospace">${r.email}</strong> 宛にお送りしました。</div>
+    <div style="background:linear-gradient(135deg,var(--lilac-pale),var(--cream));border:1.5px dashed var(--lilac-light);border-radius:20px;padding:22px 24px;text-align:left;margin-bottom:22px;">
+      <div style="font-family:'Cormorant Garamond',serif;font-style:italic;font-size:10px;letter-spacing:.3em;color:var(--lilac);text-align:center;margin-bottom:10px">reservation receipt</div>
+      <div style="font-family:'DM Mono',monospace;font-size:18px;text-align:center;margin-bottom:16px">${r.id}</div>
+      ${[['日時',`${r.date} ${r.time}〜${et}`],['人数',`${r.party}名様`],['テーブル',`${r.tables.join('・')}番`],['お名前',`${r.lastName} ${r.firstName}`],['ご注文',r.orders.join('、')||'—'],['お支払い','当日店舗にて'],['ステータス','確定済み ✓']].map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--mist)">${k}</span><span ${k==='ステータス'?'style="color:var(--sage)"':''}>${v}</span></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+      <button class="btn-primary" onclick="showPage('top')">トップへ戻る</button>
+      <button class="btn-outline" onclick="goMypage('${r.id}','${r.email}')">マイページを確認</button>
+    </div>
+  </div></div>`;
+}
+
+// ══════════════════════════════════════
+// MYPAGE
+// ══════════════════════════════════════
+function renderMypage(){
+  const el=document.getElementById('mypageContent');
+  if(!S.mpRes&&!S.mpResId){
+    el.innerHTML=`<div class="form-card" style="max-width:440px;margin:0 auto">
+      <div class="form-eyebrow">my page</div><div class="form-title">マイページ</div>
+      <div class="form-subtitle">予約番号とメールアドレスでご確認いただけます</div>
+      <div class="form-group"><label class="form-label">予約番号</label><input class="form-input" id="mpid" placeholder="HN-XXXX" value="${S.mpResId}"></div>
+      <div class="form-group"><label class="form-label">メールアドレス</label><input class="form-input" id="mpem" type="email" placeholder="your@email.com" value="${S.mpEmail}"></div>
+      <div class="form-actions"><div></div><button class="btn-next" onclick="mpLookup()">照会する →</button></div>
+    </div>`;return;
+  }
+  if(S.mpResId&&!S.mpRes){
+    const found=CACHE.reservations.find(r=>r.id===S.mpResId&&r.email===S.mpEmail);
+    if(!found){el.innerHTML=`<div class="form-card" style="max-width:440px;margin:0 auto"><div class="form-eyebrow">my page</div><div class="form-title">マイページ</div><div class="err-box">予約が見つかりませんでした。予約番号とメールアドレスをご確認ください。</div><button class="btn-back" onclick="S.mpResId='';S.mpEmail='';renderMypage()">← 再度照会</button></div>`;return;}
+    S.mpRes=found;
+  }
+  const res=S.mpRes,st=CACHE.eventDays[res.date]?.shift_type||'A';
+  const et=exitTime(res.time,res.party,st);
+  const today=new Date();today.setHours(0,0,0,0);
+  const rDate=new Date(res.date);rDate.setHours(0,0,0,0);
+  const isToday=rDate.getTime()===today.getTime(),isPast=rDate<today;
+  const canCancel=res.status==='confirmed'&&!isToday&&!isPast;
+  el.innerHTML=`<div style="max-width:500px;margin:0 auto">
+    <div style="font-family:'Noto Serif JP',serif;font-size:22px;font-weight:200;margin-bottom:24px">マイページ</div>
+    <div class="res-card">
+      <div class="res-id">予約番号：${res.id}</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:8px">
+        <div class="res-main">${fmtDate(res.date)}　${res.time}〜${et}</div>
+        <span class="sbadge ${res.status==='confirmed'?'sbadge-ok':'sbadge-ng'}">${res.status==='confirmed'?'確定済み':'キャンセル済み'}</span>
+      </div>
+      <div class="res-sub">${res.last_name||''} ${res.first_name||''} 様　${res.party}名</div>
+      <div class="res-sub" style="font-family:'DM Mono',monospace;font-size:11px">テーブル：${(res.tables||[]).join('・')}番</div>
+      ${res.last_kana||res.first_kana?`<div class="res-sub">（${res.last_kana} ${res.first_kana}）</div>`:''}
+      ${res.phone?`<div class="res-sub">📞 ${res.phone}</div>`:''}
+      <div class="res-sub">✉ ${res.email}</div>
+      ${res.orders?.length?`<div class="res-sub" style="margin-top:5px">🌸 ${res.orders.join('、')}</div>`:''}
+    </div>
+    <div style="margin-top:16px">
+      ${res.status==='cancelled'?`<div style="background:var(--rose-light);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--danger);line-height:1.9">キャンセル済みです。${res.party}名分の空き枠として再開放されました。</div>`:
+      `<div style="background:var(--lilac-pale);border:1px solid var(--lilac-light);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--ink2);line-height:1.9;margin-bottom:14px">
+        ${isToday?'<div style="color:var(--danger)">⚠ 当日のキャンセルはお受けできません</div>':''}
+        ${isPast?'<div style="color:var(--mist)">このご予約は終了しています</div>':''}
+        ${canCancel?'<div>前日までキャンセルが可能です</div>':''}
+        <div style="font-size:10.5px;color:var(--mist)">お支払いは当日店舗にてお受けします</div>
+      </div>
+      ${canCancel?`<button class="btn-danger" onclick="mpCancelConfirm()">✕ この予約をキャンセルする</button>`:''}`}
+    </div>
+    <div style="margin-top:24px"><button class="btn-back" onclick="S.mpRes=null;S.mpResId='';S.mpEmail='';renderMypage()">← 別の予約を照会</button></div>
+  </div>`;
+}
+
+async function mpLookup(){
+  S.mpResId=document.getElementById('mpid').value.trim();
+  S.mpEmail=document.getElementById('mpem').value.trim();
+  if(!S.mpResId||!S.mpEmail){alert('予約番号とメールアドレスを入力してください');return;}
+  showLoad('照会中...');
+  // Supabase接続時：最新データを取得
+  if(isConfigured){
+    try{
+      const {data,error}=await sb.from('reservations').select('*').eq('id',S.mpResId).eq('email',S.mpEmail).single();
+      if(!error&&data) CACHE.reservations=[...CACHE.reservations.filter(r=>r.id!==data.id),{...data,time:data.time.slice(0,5)}];
+    }catch(e){console.warn('lookup error',e);}
+  }
+  hideLoad();renderMypage();
+}
+
+function mpCancelConfirm(){
+  showModal(`<div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-title">キャンセルの確認</div>
+    <div style="font-size:12px;color:var(--ink2);margin-bottom:12px">以下の予約をキャンセルします。この操作は取り消せません。</div>
+    <div style="background:var(--lilac-pale);border-radius:12px;padding:14px;font-size:13px;margin-bottom:14px;border:1px solid var(--lilac-light)">
+      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist);margin-bottom:5px">${S.mpRes.id}</div>
+      <div>${fmtDate(S.mpRes.date)} ${S.mpRes.time}〜</div>
+      <div>${S.mpRes.party}名様　テーブル${(S.mpRes.tables||[]).join('・')}番</div>
+    </div>
+    <div style="background:var(--rose-light);border-radius:10px;padding:10px 14px;font-size:11px;color:var(--danger);margin-bottom:14px">キャンセル後、${S.mpRes.party}名分の空き枠として即時再開放されます。</div>
+    <div class="modal-actions"><button class="btn-back" onclick="closeModal()">戻る</button><button class="btn-danger" onclick="execCancel()">キャンセルを確定する</button></div>
+  </div>`);
+}
+
+async function execCancel(){
+  closeModal();showLoad('処理中...');
+  try{
+    await cancelReservation(S.mpRes.id);
+    S.mpRes=CACHE.reservations.find(r=>r.id===S.mpRes.id);
+    hideLoad();renderMypage();
+  }catch(e){hideLoad();alert('キャンセルに失敗しました。再度お試しください。');}
+}
+
+// ══════════════════════════════════════
+// ADMIN
+// ══════════════════════════════════════
+function renderAdmin(){
+  const el=document.getElementById('adminContent');
+  if(!S.adminLoggedIn){
+    el.innerHTML=`<div style="max-width:360px;margin:60px auto"><div class="form-card">
+      <div class="form-eyebrow">admin</div><div class="form-title">管理者ログイン</div>
+      <div class="form-group"><label class="form-label">管理者ID</label><input class="form-input" id="aid" placeholder="admin"></div>
+      <div class="form-group"><label class="form-label">パスワード</label><input class="form-input" type="password" id="apw" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+      <div class="form-actions"><div></div><button class="btn-next" onclick="doAdminLogin()">ログイン</button></div>
+      <div style="font-size:10.5px;color:var(--mist);text-align:center;margin-top:10px;font-style:italic">※ デモ：任意の値でログインできます</div>
+    </div></div>`;return;
+  }
+  const TABS=[{id:'calendar',label:'📅 開催日管理'},{id:'reservations',label:'📋 予約一覧'},{id:'menus',label:'🌸 メニュー管理'},{id:'email',label:'✉ メール編集'}];
+  el.innerHTML=`<div class="admin-header"><div class="admin-title">🌸 管理画面</div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span style="font-size:11px;color:${isConfigured?'var(--sage)':'var(--danger)'}">● ${isConfigured?'Supabase 接続中':'デモモード（未接続）'}</span>
+      <button class="btn-back" onclick="S.adminLoggedIn=false;renderAdmin()">ログアウト</button>
+    </div>
+  </div>
+  <div class="admin-tabs">${TABS.map(t=>`<button class="admin-tab${S.adminTab===t.id?' active':''}" onclick="swTab('${t.id}')">${t.label}</button>`).join('')}</div>
+  <div id="adminTabBody"></div>`;
+  renderAdminTab();
+}
+function swTab(t){S.adminTab=t;renderAdminTab();}
+function renderAdminTab(){
+  const el=document.getElementById('adminTabBody');if(!el)return;
+  if(S.adminTab==='calendar')adminCal(el);
+  else if(S.adminTab==='reservations')adminRes(el);
+  else if(S.adminTab==='menus')adminMenus(el);
+  else if(S.adminTab==='email')adminEmail(el);
+}
+
+function adminCal(el){
+  const y=S.adminCalY,m=S.adminCalM;
+  const MN=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const first=new Date(y,m,1).getDay(),last=new Date(y,m+1,0).getDate();
+  let cells='';
+  for(let i=0;i<first;i++)cells+=`<div class="acd acd-empty"></div>`;
+  for(let d=1;d<=last;d++){
+    const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const ev=CACHE.eventDays[ds]||{open:false,shift_type:'A',extra_hour:false};
+    const cnt=CACHE.reservations.filter(r=>r.date===ds&&r.status!=='cancelled').length;
+    const sel=S.adminSelDate===ds;
+    cells+=`<div class="acd${ev.open?'':' acd-off'}" onclick="adminSelDay('${ds}')" style="${sel?'border-color:var(--lilac-deep);background:var(--lilac-pale);':''}">
+      <div class="acd-day">${d}</div>
+      <div class="acd-st ${ev.open?'on':'off'}">${ev.open?'開催':'休業'}</div>
+      ${ev.open?`<span style="font-size:9px;color:var(--mist)">Shift-${ev.shift_type||'A'}</span>`:''}
+      ${ev.extra_hour?`<div class="acd-extra">+1h</div>`:''}
+      ${cnt>0?`<div class="acd-cnt">${cnt}件</div>`:''}
+    </div>`;
+  }
+  el.innerHTML=`<div style="background:white;border:1px solid var(--border);border-radius:18px;padding:22px;margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <button class="btn-back" style="padding:6px 14px;font-size:12px" onclick="admCalMv(-1)">‹ 前月</button>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:16px">${y} / ${MN[m]}</div>
+      <button class="btn-back" style="padding:6px 14px;font-size:12px" onclick="admCalMv(1)">次月 ›</button>
+    </div>
+    <div class="admin-cal-grid">
+      ${DOW.map((d,i)=>`<div class="admin-cal-dow" style="${i===0?'color:var(--rose)':i===6?'color:var(--lilac-deep)':''}">${d}</div>`).join('')}
+      ${cells}
+    </div>
+  </div><div id="adminDayEd"></div>`;
+  window.admCalMv=d=>{S.adminCalM+=d;if(S.adminCalM>11){S.adminCalM=0;S.adminCalY++;}if(S.adminCalM<0){S.adminCalM=11;S.adminCalY--;}renderAdminTab();};
+  window.adminSelDay=ds=>{S.adminSelDate=ds;admDayEd(ds);};
+  if(S.adminSelDate)admDayEd(S.adminSelDate);
+}
+
+function admDayEd(ds){
+  const el=document.getElementById('adminDayEd');if(!el)return;
+  if(!CACHE.eventDays[ds])CACHE.eventDays[ds]={date:ds,open:false,shift_type:'A',extra_hour:false,menus:[]};
+  const ev=CACHE.eventDays[ds];
+  const conf=CACHE.reservations.filter(r=>r.date===ds&&r.status!=='cancelled').length;
+  const total=CACHE.reservations.filter(r=>r.date===ds).length;
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">設定</div><div class="form-title">${fmtDate(ds)}</div>
+    <div style="display:flex;gap:9px;align-items:center;margin-bottom:18px;flex-wrap:wrap">
+      <span style="font-size:12px;font-family:'Noto Serif JP',serif">開催ステータス</span>
+      <button onclick="setEvOpen('${ds}',true)" class="${ev.open?'btn-next':'btn-back'}" style="padding:7px 16px;border-radius:100px;font-size:12px">✓ 開催</button>
+      <button onclick="setEvOpen('${ds}',false)" class="${!ev.open?'btn-next':'btn-back'}" style="padding:7px 16px;border-radius:100px;font-size:12px">✕ 休業</button>
+    </div>
+    ${ev.open?`<div class="form-group"><label class="form-label">スタッフシフトタイプ</label>
+      <select class="form-select" onchange="setShift('${ds}',this.value)">
+        <option value="A" ${ev.shift_type==='A'?'selected':''}>Aシフト（1名=5分 / 2名=10分 / 3名=15分 / 4名=20分）</option>
+        <option value="B" ${ev.shift_type==='B'?'selected':''}>Bシフト（1〜2名=5分 / 3〜4名=10分）</option>
+      </select></div>
+    <div style="background:var(--cream2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px">
+      <div style="font-size:12px;font-family:'Noto Serif JP',serif;margin-bottom:8px">10:00〜 追加枠</div>
+      <div style="font-size:11px;color:var(--ink2);margin-bottom:10px;line-height:1.7">満席時に10:00〜11:00の追加枠を開放。既存の予約は維持されます。</div>
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <span style="font-size:12px">現在：<strong style="color:${ev.extra_hour?'var(--gold)':'var(--mist)'}">${ev.extra_hour?'✓ 追加枠あり（10:00〜）':'通常（11:00〜）'}</strong></span>
+        ${ev.extra_hour?`<button onclick="setExtraH('${ds}',false)" class="btn-back" style="padding:5px 12px;font-size:11px">解除</button>`:`<button onclick="setExtraH('${ds}',true)" style="background:var(--gold);color:white;border:none;padding:5px 12px;border-radius:100px;font-size:11px;cursor:pointer">＋1時間枠を追加</button>`}
+      </div>
+    </div>`:`<div style="font-size:12px;color:var(--mist);padding:8px 0;font-style:italic">休業日のため設定項目はありません</div>`}
+    <div style="font-size:11px;color:var(--mist);padding-top:10px;border-top:1px solid var(--border);display:flex;gap:14px;flex-wrap:wrap">
+      <span>確定：<strong style="color:var(--sage)">${conf}件</strong></span><span>合計：${total}件</span><span>キャンセル：${total-conf}件</span>
+    </div>
+  </div>`;
+}
+
+window.setEvOpen=async(ds,v)=>{
+  if(!CACHE.eventDays[ds])CACHE.eventDays[ds]={date:ds,open:v,shift_type:'A',extra_hour:false,menus:[]};
+  await saveEventDay(ds,{open:v});S.adminSelDate=ds;renderAdminTab();
+};
+window.setShift=async(ds,v)=>{await saveEventDay(ds,{shift_type:v});admDayEd(ds);};
+window.setExtraH=async(ds,v)=>{await saveEventDay(ds,{extra_hour:v});S.adminSelDate=ds;renderAdminTab();};
+
+function adminRes(el){
+  const months=[...new Set(CACHE.reservations.map(r=>r.date.slice(0,7)))].sort();
+  if(!S.adminMonthFilter||!months.includes(S.adminMonthFilter))
+    S.adminMonthFilter=months[months.length-1]||new Date().toISOString().slice(0,7);
+  const filt=CACHE.reservations.filter(r=>r.date.startsWith(S.adminMonthFilter));
+  const conf=filt.filter(r=>r.status==='confirmed').length,canc=filt.filter(r=>r.status==='cancelled').length;
+  const ppl=filt.filter(r=>r.status!=='cancelled').reduce((s,r)=>s+r.party,0);
+  el.innerHTML=`<div class="month-tabs">${months.map(m=>`<div class="month-tab${m===S.adminMonthFilter?' active':''}" onclick="S.adminMonthFilter='${m}';renderAdminTab()">${m.replace('-','年')}月</div>`).join('')}</div>
+  <div class="admin-stats">
+    <div class="astat"><div class="astat-label">TOTAL</div><div class="astat-val">${filt.length}</div></div>
+    <div class="astat"><div class="astat-label">確定</div><div class="astat-val" style="color:var(--sage)">${conf}</div></div>
+    <div class="astat"><div class="astat-label">キャンセル</div><div class="astat-val" style="color:var(--rose)">${canc}</div></div>
+    <div class="astat"><div class="astat-label">来場見込</div><div class="astat-val">${ppl}<span style="font-size:11px;color:var(--mist)">名</span></div></div>
+  </div>
+  <div style="background:white;border:1px solid var(--border);border-radius:16px;overflow:hidden">
+    <div style="padding:13px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+      <div style="font-size:13px;font-family:'Noto Serif JP',serif">${S.adminMonthFilter.replace('-','年')}月の予約</div>
+      <div style="font-size:11px;color:var(--mist)">${filt.length}件</div>
+    </div>
+    <div class="res-table-wrap"><table class="res-table">
+      <thead><tr><th>予約ID</th><th>日付</th><th>時間</th><th>〜退席</th><th>人数</th><th>テーブル</th><th>お名前</th><th>ふりがな</th><th>電話</th><th>メール</th><th>ご注文</th><th>状態</th></tr></thead>
+      <tbody>${filt.slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).map(r=>{
+        const st2=CACHE.eventDays[r.date]?.shift_type||'A';
+        const et2=exitTime(r.time,r.party,st2);
+        return`<tr>
+          <td style="font-family:'DM Mono',monospace;font-size:11px">${r.id}</td>
+          <td style="font-size:11px">${r.date.slice(5).replace('-','/')}</td>
+          <td style="font-family:'DM Mono',monospace;font-size:11px">${r.time}</td>
+          <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--mist)">${et2}</td>
+          <td>${r.party}名</td>
+          <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lilac-deep)">${(r.tables||[]).join('・')}番</td>
+          <td>${r.last_name||'—'} ${r.first_name||''}</td>
+          <td style="font-size:10px;color:var(--mist)">${r.last_kana||''} ${r.first_kana||''}</td>
+          <td style="font-size:11px">${r.phone||'—'}</td>
+          <td style="font-size:10px;color:var(--mist)">${r.email}</td>
+          <td style="font-size:10px;max-width:100px;overflow:hidden;text-overflow:ellipsis">${(r.orders||[]).join('、')}</td>
+          <td><span class="sbadge ${r.status==='confirmed'?'sbadge-ok':'sbadge-ng'}" style="font-size:9.5px;padding:2px 9px">${r.status==='confirmed'?'確定':'取消'}</span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function adminMenus(el){
+  const evDates=Object.values(CACHE.eventDays).filter(e=>e.open).map(e=>e.date).sort();
+  if(!S.adminMenuDate||!CACHE.eventDays[S.adminMenuDate]?.open)S.adminMenuDate=evDates[0]||null;
+  const ev=S.adminMenuDate?CACHE.eventDays[S.adminMenuDate]:null,menus=ev?.menus||[];
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">メニュー管理</div><div class="form-title">開催日メニュー</div>
+    <div class="form-group"><label class="form-label">対象開催日</label>
+      <select class="form-select" onchange="S.adminMenuDate=this.value;renderAdminTab()">
+        ${evDates.slice(0,90).map(d=>`<option value="${d}" ${d===S.adminMenuDate?'selected':''}>${fmtDate(d)}</option>`).join('')}
+      </select></div>
+    ${ev?`<div id="menuEditor">
+      <div style="font-size:11px;color:var(--mist);margin-bottom:12px;font-style:italic">最大4品まで。予約フローへリアルタイム反映されます。</div>
+      ${menus.map((m,i)=>`<div style="border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px"><span style="font-size:11px;color:var(--mist)">メニュー ${i+1}</span>
+          <button onclick="rmMenu(${i})" style="background:none;border:1px solid var(--rose-light);border-radius:5px;color:var(--danger);cursor:pointer;font-size:11px;padding:3px 9px">削除</button></div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">メニュー名</label><input class="form-input" value="${m.name}" oninput="updMenu(${i},'name',this.value)"></div>
+          <div class="form-group"><label class="form-label">価格（円）</label><input class="form-input" type="number" value="${m.price}" oninput="updMenu(${i},'price',+this.value)"></div>
+        </div>
+        <div class="form-group"><label class="form-label">説明</label><input class="form-input" value="${m.description}" oninput="updMenu(${i},'description',this.value)"></div>
+        <div class="form-group"><label class="form-label">アレルギー</label><input class="form-input" value="${m.allergy}" oninput="updMenu(${i},'allergy',this.value)"></div>
+      </div>`).join('')}
+      ${menus.length<4?`<button class="btn-outline" style="width:100%;margin-bottom:10px" onclick="addMenu()">＋ メニューを追加（${menus.length}/4）</button>`:`<div style="font-size:11px;color:var(--mist);text-align:center;padding:8px">最大4品（${menus.length}/4）</div>`}
+      <button class="btn-next" style="width:100%" onclick="saveMenusClick()">💾 メニューを保存する</button>
+    </div>`:'<div style="font-size:12px;color:var(--mist)">開催日を選択してください</div>'}
+  </div>`;
+}
+window.updMenu=(i,k,v)=>{const ev=CACHE.eventDays[S.adminMenuDate];if(ev?.menus[i])ev.menus[i][k]=v;};
+window.rmMenu=i=>{const ev=CACHE.eventDays[S.adminMenuDate];if(ev)ev.menus.splice(i,1);renderAdminTab();};
+window.addMenu=()=>{const ev=CACHE.eventDays[S.adminMenuDate];if(ev&&ev.menus.length<4)ev.menus.push({name:'新メニュー',description:'説明を入力してください',allergy:'なし',price:1680});renderAdminTab();};
+window.saveMenusClick=async()=>{
+  showLoad('メニューを保存中...');
+  try{await saveMenus(S.adminMenuDate,CACHE.eventDays[S.adminMenuDate].menus);hideLoad();alert('保存しました ✓');}
+  catch(e){hideLoad();alert('保存に失敗しました: '+e.message);}
+};
+
+function adminEmail(el){
+  const tmpl=CACHE.thankyouTemplate;
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">メール編集</div><div class="form-title">サンキューメール</div>
+    <div style="background:var(--lilac-pale);border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:11px;color:var(--ink2);line-height:2.1;border:1px solid var(--lilac-light)">
+      変数：${['{id}','{name}','{date}','{time}','{tables}','{party}','{orders}'].map(v=>`<code style="background:white;border:1px solid var(--border);padding:2px 7px;border-radius:5px;font-family:'DM Mono',monospace;margin:0 2px">${v}</code>`).join('')}
+    </div>
+    <textarea id="emailTmpl" style="width:100%;min-height:280px;padding:13px;border:1.5px solid var(--border);border-radius:12px;font-size:12px;font-family:'DM Mono',monospace;background:var(--cream);color:var(--ink);outline:none;line-height:1.9;resize:vertical">${tmpl}</textarea>
+    <div class="form-actions" style="margin-top:14px">
+      <button class="btn-back" onclick="prevTmpl()">プレビュー</button>
+      <button class="btn-next" onclick="saveTmplClick()">保存する ✓</button>
+    </div>
+  </div>`;
+}
+window.saveTmplClick=async()=>{
+  showLoad('保存中...');
+  try{await saveTemplate(document.getElementById('emailTmpl').value);hideLoad();alert('保存しました ✓');}
+  catch(e){hideLoad();alert('保存に失敗しました: '+e.message);}
+};
+window.prevTmpl=()=>{
+  const t=document.getElementById('emailTmpl').value;
+  const p=t.replace('{id}','HN-1234').replace('{name}','田中 花子').replace('{date}','2026年7月20日（日）').replace('{time}','13:00').replace('{tables}','4・5番').replace('{party}','4').replace('{orders}','虹色の地球×2、桃とローズ×2');
+  showModal(`<div class="modal-box" onclick="event.stopPropagation()" style="max-width:520px"><div class="modal-title">メールプレビュー</div><pre style="white-space:pre-wrap;font-size:11.5px;color:var(--ink2);line-height:1.9;background:var(--cream);padding:14px;border-radius:10px;font-family:'DM Mono',monospace">${p}</pre><div class="modal-actions"><button class="btn-back" onclick="closeModal()">閉じる</button></div></div>`);
+};
+
+function doAdminLogin(){
+  const id=document.getElementById('aid')?.value,pw=document.getElementById('apw')?.value;
+  if(!id||!pw){alert('IDとパスワードを入力してください');return;}
+  showLoad('認証中...');setTimeout(()=>{hideLoad();S.adminLoggedIn=true;renderAdmin();},600);
+}
+
+// ══════════════════════════════════════
+// INIT
+// ══════════════════════════════════════
+async function init(){
+  initSupabase();
+  showLoad('データを読み込み中...');
+  await loadData();
+  hideLoad();
+  if(location.hash==='#admin') showPage('admin');
+  else renderReserve();
+}
+
+init();
+</script>
+</body>
+</html>
