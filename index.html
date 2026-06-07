@@ -1347,8 +1347,7 @@ function verifyOtp(){
   const code=[...document.querySelectorAll('.otp-input')].map(x=>x.value).join('');
   if(code.length<6){alert('6桁のコードを入力してください');return;}
   if(isConfigured && code !== window._otpCode){
-    alert('コードが正しくありません。
-メールをご確認のうえ、もう一度お試しください。');
+    alert('コードが正しくありません。メールをご確認のうえ、もう一度お試しください。');
     return;
   }
   showLoad('認証中...');
