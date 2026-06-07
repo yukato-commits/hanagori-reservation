@@ -747,8 +747,10 @@ function fmtDate(d){
 
 function assignTables(party, occ) {
   if(party === 1) {
-    // 1名席は1・2番のみ。両方塞がっていれば予約不可
+    // まず1名席（1・2番）を確認
     for(const n of [1,2]) if(!occ.has(n)) return [n];
+    // 1名席が満席の場合は2名席に案内（優先順：3→10→9→8→7→6→5→4）
+    for(const n of [3,10,9,8,7,6,5,4]) if(!occ.has(n)) return [n];
     return null;
   }
   if(party === 2) {
@@ -784,9 +786,11 @@ function exitTime(time, party, st) {
 // インメモリキャッシュ（Supabase未接続時のフォールバック兼キャッシュ）
 // ══════════════════════════════════════
 const CACHE = {
-  eventDays: {},   // date -> {date,open,shift_type,extra_hour,menus[]}
+  eventDays: {},
   reservations: [],
   thankyouTemplate: '',
+  termsContent: '',
+  masterMenus: [],  // マスターメニュー（最大5品）
   loaded: false,
 };
 
@@ -827,6 +831,13 @@ async function loadData() {
     const {data:st} = await sb.from('settings').select('*');
     const tmpl = st?.find(s=>s.key==='thankyou_template');
     if(tmpl) CACHE.thankyouTemplate = tmpl.value;
+    const tc = st?.find(s=>s.key==='terms_content');
+    if(tc) CACHE.termsContent = tc.value;
+    const mm = st?.find(s=>s.key==='master_menus');
+    if(mm) {
+      try { CACHE.masterMenus = JSON.parse(mm.value); }
+      catch(e) { CACHE.masterMenus = []; }
+    }
 
     CACHE.loaded = true;
   } catch(e) {
@@ -836,13 +847,15 @@ async function loadData() {
 }
 
 function loadFallbackData() {
-  // デモデータ（Supabase未接続時）
-  const menus=[
-    {name:'宇治抹茶',description:'京都産一番茶の濃厚な抹茶シロップ',allergy:'なし',price:1680},
-    {name:'ひまわりア・ラ・モード',description:'マンゴーとパッションフルーツのシロップ',allergy:'なし',price:1800},
-    {name:'虹色の地球',description:'ミントシロップ×ホワイトチョコエスプーマ',allergy:'乳・大豆',price:1680},
-    {name:'桃とローズ',description:'白桃シロップにバラの花びら',allergy:'なし',price:1950},
+  // デモ用マスターメニュー
+  CACHE.masterMenus = [
+    {key:'m1', name:'真紅の苺氷',     description:'情熱の赤いバラが咲く、苺の物語',     allergy:'なし', price:1800, image:''},
+    {key:'m2', name:'花霞の抹茶氷',   description:'春霞に包まれた花園の抹茶',           allergy:'なし', price:1680, image:''},
+    {key:'m3', name:'向日葵の琥珀氷', description:'真夏の太陽を浴びた向日葵の温もり',   allergy:'なし', price:1800, image:''},
+    {key:'m4', name:'深海の蒼花氷',   description:'深海に咲く幻の花の青い世界',         allergy:'乳',   price:1680, image:''},
+    {key:'m5', name:'恋雲の果実氷',   description:'甘く淡い恋心のような果実の物語',     allergy:'なし', price:1950, image:''},
   ];
+  const menus = CACHE.masterMenus.slice(0,4).map(m=>({...m, visible:true}));
   const today=new Date();
   for(let i=0;i<90;i++){
     const d=new Date(today);d.setDate(today.getDate()+i);
@@ -896,17 +909,49 @@ async function saveEventDay(date, patch) {
   Object.assign(CACHE.eventDays[date], patch);
 }
 
-// ── メニュー保存（管理画面用） ──
+// ── 開催日のメニュー設定保存（マスター参照型） ──
+// menus配列の各要素：{key:'m1', visible:true}
 async function saveMenus(date, menus) {
   if(isConfigured) {
     await sb.from('menus').delete().eq('date', date);
     if(menus.length>0) {
-      const rows = menus.map((m,i)=>({...m, date, sort_order:i+1}));
+      const rows = menus.map((m,i)=>({
+        date,
+        sort_order: i+1,
+        name: m.key || m.name,  // keyを保存（後方互換）
+        description: m.visible !== false ? 'show' : 'hide',
+        allergy: '',
+        price: 0,
+        visible: m.visible !== false,
+        image: ''
+      }));
       const {error} = await sb.from('menus').insert(rows);
       if(error) throw error;
     }
   }
   if(CACHE.eventDays[date]) CACHE.eventDays[date].menus=menus;
+}
+
+// ── マスターメニュー保存 ──
+async function saveMasterMenus() {
+  if(isConfigured) {
+    const {error} = await sb.from('settings').upsert({
+      key: 'master_menus',
+      value: JSON.stringify(CACHE.masterMenus)
+    });
+    if(error) throw error;
+  }
+}
+
+// ── マスター参照で開催日メニューを実体化 ──
+// 予約フロー側で使用：keyからマスター情報を引いて完全なメニューオブジェクトを返す
+function resolveMenus(dayMenus) {
+  if(!dayMenus || !dayMenus.length) return [];
+  return dayMenus.map(dm => {
+    const master = CACHE.masterMenus.find(m => m.key === (dm.key || dm.name));
+    if(!master) return null;
+    return { ...master, visible: dm.visible !== false };
+  }).filter(Boolean);
 }
 
 // ── テンプレート保存 ──
@@ -934,15 +979,28 @@ function getOccupiedAt(date, timeMin, excludeId) {
   return occ;
 }
 
+// 予約のマシン処理時間を返す
+function getMachineMinutes(r, shiftType) {
+  const st = shiftType || 'A';
+  if(r.party === 1) {
+    // 2名席で1名利用かどうか判定（テーブルが1・2番以外なら2名席利用）
+    const using2P = r.tables && r.tables.length > 0 && ![1,2].includes(r.tables[0]);
+    if(using2P) return st === 'A' ? 10 : 5;  // 2名席1名利用
+    return 5;  // 通常1名席利用
+  }
+  return r.party * MACHINE_PER;  // 2〜4名は人数×5分
+}
+
 function getMachineNext(date, excludeId) {
   const ev=CACHE.eventDays[date];
+  const st=ev?.shift_type||'A';
   const startMin=ev?.extra_hour?10*60:11*60;
   const sorted=CACHE.reservations
     .filter(r=>r.date===date&&r.status!=='cancelled'&&r.id!==excludeId)
     .sort((a,b)=>toMin(a.time)-toMin(b.time));
   if(!sorted.length) return startMin;
   const last=sorted[sorted.length-1];
-  return toMin(last.time)+last.party*MACHINE_PER;
+  return toMin(last.time)+getMachineMinutes(last, st);
 }
 
 function getSlots(date, party) {
@@ -996,12 +1054,12 @@ function getDayStatus(date){
 // STATE
 // ══════════════════════════════════════
 const ADMIN_USERS = [
-  { id: 'mapril-admin1', password: 'kaigouri1', role: 'admin', name: '管理者1' },
-  { id: 'mapril-admin2', password: 'kakigouri2', role: 'admin', name: '管理者2' },
-  { id: 'mapril-admin3', password: 'kakigouri3', role: 'admin', name: '管理者3' },
-  { id: 'staff1',        password: 'hyouka1', role: 'staff', name: 'スタッフ1' },
-  { id: 'staff2',        password: 'hyouka2', role: 'staff', name: 'スタッフ2' },
-  { id: 'staff3',        password: 'hyouka3', role: 'staff', name: 'スタッフ3' },
+  { id: 'mapril-admin1', password: '', role: 'admin', name: '管理者1' },
+  { id: 'mapril-admin2', password: '', role: 'admin', name: '管理者2' },
+  { id: 'mapril-admin3', password: '', role: 'admin', name: '管理者3' },
+  { id: 'staff1',        password: '', role: 'staff', name: 'スタッフ1' },
+  { id: 'staff2',        password: '', role: 'staff', name: 'スタッフ2' },
+  { id: 'staff3',        password: '', role: 'staff', name: 'スタッフ3' },
 ];
 
 const S={
@@ -1013,6 +1071,7 @@ const S={
   mpResId:'',mpEmail:'',mpRes:null,
   adminLoggedIn:false,
   adminUser:null,
+  adminMenuSubTab:'master',
   adminTab:'calendar',
   adminCalY:new Date().getFullYear(),adminCalM:new Date().getMonth(),
   adminSelDate:null,adminMonthFilter:'',adminMenuDate:null,calSelected:new Set(),adminResFilter:'month',adminResWeek:null,adminResDay:null,menuBulkDates:new Set(),
@@ -1218,13 +1277,34 @@ async function sendOtp(){
   const e=document.getElementById('r-email').value.trim();
   if(!e||!e.includes('@')){alert('正しいメールアドレスをご入力ください');return;}
   S.r.email=e;
-  // 本番ではSupabase Edge FunctionやResendでOTPを送信する
-  // デモ：ローカルに6桁コードを保存
-  window._otpCode = String(Math.floor(100000+Math.random()*900000));
+  const code = String(Math.floor(100000+Math.random()*900000));
+  window._otpCode = code;
   showLoad('確認コードを送信中...');
-  // 本番メール送信処理をここに追加
-  // await sendEmailOtp(e, window._otpCode);
-  setTimeout(()=>{hideLoad();S.rStep=4;renderReserve();},1400);
+  try {
+    if(isConfigured) {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+        },
+        body: JSON.stringify({ email: e, code }),
+      });
+      if(!res.ok) {
+        const err = await res.json().catch(()=>({}));
+        throw new Error(err.error || 'メール送信に失敗しました');
+      }
+    }
+    hideLoad();
+    S.rStep=4;
+    renderReserve();
+  } catch(e) {
+    hideLoad();
+    alert(`確認コードの送信に失敗しました。
+${e.message}
+
+しばらく待ってから再度お試しください。`);
+  }
 }
 
 // ── Step 4: OTP ──
@@ -1256,13 +1336,19 @@ function rStep4(el){
 function verifyOtp(){
   const code=[...document.querySelectorAll('.otp-input')].map(x=>x.value).join('');
   if(code.length<6){alert('6桁のコードを入力してください');return;}
-  // 本番: if(code !== window._otpCode) { alert('コードが違います'); return; }
-  showLoad('認証中...');setTimeout(()=>{hideLoad();S.rStep=5;renderReserve();},900);
+  if(isConfigured && code !== window._otpCode){
+    alert('コードが正しくありません。
+メールをご確認のうえ、もう一度お試しください。');
+    return;
+  }
+  showLoad('認証中...');
+  setTimeout(()=>{hideLoad();S.rStep=5;renderReserve();},600);
 }
 
 // ── Step 5: 情報・メニュー・規約 ──
 function rStep5(el){
-  const ev=CACHE.eventDays[S.r.date],menus=ev?.menus||[];
+  const ev=CACHE.eventDays[S.r.date];
+  const menus=resolveMenus(ev?.menus||[]);
   const st=ev?.shift_type||'A';
   const et=exitTime(S.r.time,S.r.party,st);
   const visibleMenus = menus.filter(m=>m.visible!==false);
@@ -1334,6 +1420,22 @@ async function submitRes(){
   showLoad('予約を確定しています...');
   try {
     S.r.id = await saveReservation(S.r);
+    // 予約完了メール送信（非同期・失敗してもフローは止めない）
+    if(isConfigured) {
+      const st2 = CACHE.eventDays[S.r.date]?.shift_type||'A';
+      const et2 = exitTime(S.r.time, S.r.party, st2);
+      sendConfirmationEmail({
+        email:  S.r.email,
+        id:     S.r.id,
+        name:   `${S.r.lastName} ${S.r.firstName}`,
+        date:   fmtDate(S.r.date),
+        time:   S.r.time,
+        exit:   et2,
+        party:  S.r.party,
+        tables: S.r.tables.join('・') + '番',
+        orders: S.r.orders.join('、'),
+      }).catch(err => console.warn('確認メール送信エラー:', err));
+    }
     hideLoad();S.rStep=6;renderReserve();
   } catch(e) {
     hideLoad();alert('予約の保存に失敗しました。再度お試しください。\n'+e.message);
@@ -1497,6 +1599,8 @@ function renderAdmin(){
     {id:'reservations',label:'📋 予約一覧'},
     {id:'menus',label:'🌸 メニュー管理'},
     {id:'realtime',label:'📡 リアルタイム'},
+    {id:'media',label:'📰 メディア予約'},
+    {id:'invite',label:'🎁 招待予約'},
     {id:'email',label:'✉ メール編集'},
     {id:'terms',label:'📄 利用規約'}
   ];
@@ -1524,6 +1628,8 @@ function renderAdminTab(){
   else if(S.adminTab==='reservations')adminRes(el);
   else if(S.adminTab==='menus')adminMenus(el);
   else if(S.adminTab==='realtime')adminRealtime(el);
+  else if(S.adminTab==='media')adminSpecial(el,'media');
+  else if(S.adminTab==='invite')adminSpecial(el,'invite');
   else if(S.adminTab==='email')adminEmail(el);
   else if(S.adminTab==='terms')adminTerms(el);
 }
@@ -1863,100 +1969,259 @@ function generateSeatingChart(date, reservations){
 
 function adminMenus(el){
   const evDates=Object.values(CACHE.eventDays).filter(e=>e.open).map(e=>e.date).sort();
+  if(!S.adminMenuDate||!CACHE.eventDays[S.adminMenuDate]?.open)S.adminMenuDate=evDates[0]||null;
 
-  // 一括適用モードか単体編集モードか
-  const isBulk = S.menuBulkDates.size > 0;
+  // マスターメニュー初期化（空なら5枠を作成）
+  if(!CACHE.masterMenus || CACHE.masterMenus.length === 0) {
+    CACHE.masterMenus = Array.from({length:5},(_,i)=>({
+      key:'m'+(i+1), name:'', description:'', allergy:'なし', price:0, image:''
+    }));
+  }
+  // 不足分を補完
+  while(CACHE.masterMenus.length < 5) {
+    CACHE.masterMenus.push({
+      key:'m'+(CACHE.masterMenus.length+1), name:'', description:'', allergy:'なし', price:0, image:''
+    });
+  }
 
-  if(!S.adminMenuDate||!CACHE.eventDays[S.adminMenuDate]?.open) S.adminMenuDate=evDates[0]||null;
-  const ev=S.adminMenuDate?CACHE.eventDays[S.adminMenuDate]:null;
-  const menus=ev?.menus||[];
+  const subTab = S.adminMenuSubTab || 'master';
 
-  const menuCardsHtml = menus.map((m,i)=>`
-    <div class="admin-menu-card" id="amc-${i}" draggable="true"
-      ondragstart="menuDragStart(${i})" ondragover="menuDragOver(event,${i})" ondrop="menuDrop(event,${i})" ondragend="menuDragEnd()">
+  el.innerHTML=`<div class="form-card">
+    <div class="form-eyebrow">メニュー管理</div>
+    <div class="form-title">メニュー管理</div>
+
+    <!-- サブタブ -->
+    <div style="display:flex;gap:4px;margin:14px 0 22px;background:var(--cream2);border:1px solid var(--border);border-radius:10px;padding:3px">
+      <button class="admin-tab${subTab==='master'?' active':''}" onclick="S.adminMenuSubTab='master';renderAdminTab()" style="flex:1">
+        📋 マスター登録（5品）
+      </button>
+      <button class="admin-tab${subTab==='daily'?' active':''}" onclick="S.adminMenuSubTab='daily';renderAdminTab()" style="flex:1">
+        📅 開催日ごとの表示設定
+      </button>
+    </div>
+
+    <div id="menuSubContent"></div>
+  </div>`;
+
+  if(subTab === 'master') renderMenuMaster();
+  else renderMenuDaily();
+}
+
+// ──────────────────────────
+// マスターメニュー編集画面
+// ──────────────────────────
+function renderMenuMaster(){
+  const el = document.getElementById('menuSubContent');
+  if(!el) return;
+
+  const cards = CACHE.masterMenus.map((m,i)=>`
+    <div class="admin-menu-card" id="mm-${i}">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <div style="flex-shrink:0">
           ${m.image
-            ?`<img src="${m.image}" style="width:72px;height:72px;border-radius:10px;object-fit:cover;cursor:pointer;display:block" onclick="showImgModal('${m.image}','${m.name}')">`
-            :`<label style="width:72px;height:72px;border-radius:10px;background:var(--cream2);border:1.5px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:10px;color:var(--mist);gap:4px">
-              <span style="font-size:20px">📷</span>画像追加
-              <input type="file" accept="image/*" style="display:none" onchange="menuImgUpload(${i},this)">
+            ?`<img src="${m.image}" style="width:80px;height:80px;border-radius:10px;object-fit:cover;cursor:pointer;display:block" onclick="showImgModal('${m.image}','${m.name}')">`
+            :`<label style="width:80px;height:80px;border-radius:10px;background:var(--cream2);border:1.5px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:10px;color:var(--mist);gap:4px">
+              <span style="font-size:22px">📷</span>画像追加
+              <input type="file" accept="image/*" style="display:none" onchange="masterImgUpload(${i},this)">
             </label>`}
-          ${m.image?`<button onclick="updMenu(${i},'image','')" style="width:72px;margin-top:4px;font-size:10px;background:none;border:1px solid var(--rose-light);border-radius:5px;color:var(--danger);cursor:pointer;padding:2px 0">削除</button>`:''}
+          ${m.image?`<button onclick="updMaster(${i},'image','')" style="width:80px;margin-top:4px;font-size:10px;background:none;border:1px solid var(--rose-light);border-radius:5px;color:var(--danger);cursor:pointer;padding:2px 0">画像削除</button>`:''}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-size:10px;color:var(--mist);cursor:grab">⠿ ドラッグで並べ替え</span>
-            <div style="display:flex;align-items:center;gap:10px">
-              <label class="menu-toggle" onclick="toggleMenuVisible(${i})">
-                <div class="toggle-sw ${m.visible!==false?'on':''}"></div>
-                <span style="font-size:11px;color:var(--mist)">${m.visible!==false?'表示中':'非表示'}</span>
-              </label>
-              <button onclick="rmMenu(${i})" style="background:none;border:1px solid var(--rose-light);border-radius:5px;color:var(--danger);cursor:pointer;font-size:11px;padding:3px 9px">削除</button>
-            </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:11px;color:var(--lilac-deep);font-family:'DM Mono',monospace;letter-spacing:.1em">商品 ${i+1} 〔${m.key}〕</div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label class="form-label">メニュー名</label><input class="form-input" value="${m.name}" oninput="updMenu(${i},'name',this.value)"></div>
-            <div class="form-group"><label class="form-label">価格（円）</label><input class="form-input" type="number" value="${m.price}" oninput="updMenu(${i},'price',+this.value)"></div>
+            <div class="form-group"><label class="form-label">商品名</label><input class="form-input" value="${m.name}" oninput="updMaster(${i},'name',this.value)" placeholder="商品名を入力"></div>
+            <div class="form-group"><label class="form-label">価格（円）</label><input class="form-input" type="number" value="${m.price}" oninput="updMaster(${i},'price',+this.value)"></div>
           </div>
-          <div class="form-group"><label class="form-label">説明</label><input class="form-input" value="${m.description}" oninput="updMenu(${i},'description',this.value)"></div>
+          <div class="form-group"><label class="form-label">説明</label><input class="form-input" value="${m.description}" oninput="updMaster(${i},'description',this.value)" placeholder="商品の説明"></div>
           <div class="form-group">
             <label class="form-label">アレルギー（該当するものをクリック）</label>
-            ${allergyPickerHtml(m.allergy||'なし', i)}
+            ${allergyPickerHtml(m.allergy||'なし', 'mm'+i)}
             <div style="font-size:10px;color:var(--mist);margin-top:4px">選択中：${m.allergy||'なし'}</div>
           </div>
         </div>
       </div>
     </div>`).join('');
 
-  el.innerHTML=`<div class="form-card">
-    <div class="form-eyebrow">メニュー管理</div>
-    <div class="form-title">開催日メニュー</div>
-
-    <!-- 一括選択エリア -->
-    <div style="margin-bottom:18px">
-      <div style="font-size:11px;color:var(--mist);margin-bottom:8px">複数日を選択して一括でメニューを適用できます</div>
-      <div class="date-multi-select">
-        ${evDates.slice(0,60).map(d=>`<div class="date-tag${S.menuBulkDates.has(d)?' sel':''}"
-          onclick="toggleMenuBulkDate('${d}')">${d.slice(5).replace('-','/')}</div>`).join('')}
-      </div>
-      ${S.menuBulkDates.size>0?`<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:12px;font-family:'Noto Serif JP',serif"><strong>${S.menuBulkDates.size}日</strong>選択中</span>
-        <button class="btn-next" style="padding:6px 16px;font-size:12px" onclick="applyMenuBulk()">📋 選択日に一括適用する</button>
-        <button class="btn-back" style="padding:6px 12px;font-size:11px" onclick="S.menuBulkDates.clear();renderAdminTab()">✕ 選択解除</button>
-      </div>`:''}
+  el.innerHTML = `
+    <div style="background:var(--lilac-pale);border:1px solid var(--lilac-light);border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--ink2);line-height:1.8">
+      💡 ここで登録した5品から、開催日ごとに表示するメニューを選びます。<br>
+      内容を変更すると、すべての予約フローに即時反映されます。
     </div>
+    ${cards}
+    <button class="btn-next" style="width:100%;margin-top:8px" onclick="saveMasterMenusClick()">💾 マスターメニューを保存する</button>
+  `;
+}
 
-    <div class="form-group"><label class="form-label">編集する開催日</label>
+// ──────────────────────────
+// 開催日ごとの表示設定画面
+// ──────────────────────────
+function renderMenuDaily(){
+  const el = document.getElementById('menuSubContent');
+  if(!el) return;
+
+  const evDates=Object.values(CACHE.eventDays).filter(e=>e.open).map(e=>e.date).sort();
+  const ev = S.adminMenuDate ? CACHE.eventDays[S.adminMenuDate] : null;
+
+  // 開催日のメニュー設定を初期化（未設定なら全マスターを表示状態で）
+  if(ev && (!ev.menus || ev.menus.length === 0)) {
+    ev.menus = CACHE.masterMenus
+      .filter(m => m.name)
+      .map(m => ({ key: m.key, visible: true }));
+  }
+
+  const dayMenus = ev?.menus || [];
+
+  // マスターから登録済みの商品だけ
+  const registered = CACHE.masterMenus.filter(m => m.name);
+
+  if(!registered.length){
+    el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--mist);font-size:13px;background:var(--cream2);border-radius:12px">
+      まず「マスター登録」タブで商品を登録してください
+    </div>`;
+    return;
+  }
+
+  // dayMenusの順序でカードを表示
+  const itemCards = dayMenus.map((dm, idx) => {
+    const master = registered.find(m => m.key === dm.key);
+    if(!master) return '';
+    return `<div class="admin-menu-card" id="dmc-${idx}" draggable="true"
+      ondragstart="dayDragStart(${idx})" ondragover="dayDragOver(event,${idx})" ondrop="dayDrop(event,${idx})" ondragend="dayDragEnd()">
+      <div style="display:flex;gap:12px;align-items:center">
+        <div style="font-size:18px;color:var(--mist);cursor:grab">⠿</div>
+        ${master.image
+          ?`<img src="${master.image}" style="width:60px;height:60px;border-radius:8px;object-fit:cover;cursor:pointer" onclick="showImgModal('${master.image}','${master.name}')">`
+          :`<div style="width:60px;height:60px;border-radius:8px;background:var(--cream2);display:flex;align-items:center;justify-content:center;font-size:22px">🍧</div>`}
+        <div style="flex:1;min-width:0">
+          <div style="font-family:'Noto Serif JP',serif;font-size:14px;font-weight:300;margin-bottom:2px">${master.name}</div>
+          <div style="font-size:11px;color:var(--mist)">¥${master.price.toLocaleString()}　${master.allergy && master.allergy!=='なし'?`<span style="color:var(--rose)">⚠ ${master.allergy}</span>`:''}</div>
+        </div>
+        <label class="menu-toggle" onclick="toggleDayMenu(${idx})" style="cursor:pointer">
+          <div class="toggle-sw ${dm.visible!==false?'on':''}"></div>
+          <span style="font-size:11px;color:var(--mist);min-width:50px">${dm.visible!==false?'表示中':'非表示'}</span>
+        </label>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="form-group" style="margin-bottom:18px"><label class="form-label">対象開催日</label>
       <select class="form-select" onchange="S.adminMenuDate=this.value;renderAdminTab()">
         ${evDates.slice(0,90).map(d=>`<option value="${d}" ${d===S.adminMenuDate?'selected':''}>${fmtDate(d)}</option>`).join('')}
       </select>
     </div>
 
+    <!-- 一括適用 -->
+    <div style="margin-bottom:18px">
+      <div style="font-size:11px;color:var(--mist);margin-bottom:8px">複数日に同じ表示設定を一括適用：</div>
+      <div class="date-multi-select">
+        ${evDates.slice(0,60).map(d=>`<div class="date-tag${S.menuBulkDates.has(d)?' sel':''}"
+          onclick="toggleMenuBulkDate('${d}')">${d.slice(5).replace('-','/')}</div>`).join('')}
+      </div>
+      ${S.menuBulkDates.size>0?`<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:12px"><strong>${S.menuBulkDates.size}日</strong>選択中</span>
+        <button class="btn-next" style="padding:6px 16px;font-size:12px" onclick="applyMenuBulkV2()">📋 一括適用</button>
+        <button class="btn-back" style="padding:6px 12px;font-size:11px" onclick="S.menuBulkDates.clear();renderAdminTab()">✕ 解除</button>
+      </div>`:''}
+    </div>
+
     ${ev?`<div>
-      <div style="font-size:11px;color:var(--mist);margin-bottom:14px">最大5品まで。ドラッグで順番変更可能。</div>
-      <div id="menuCardList">${menuCardsHtml}</div>
-      ${menus.length<5
-        ?`<button class="btn-outline" style="width:100%;margin-bottom:12px" onclick="addMenu()">＋ メニューを追加（${menus.length}/5）</button>`
-        :`<div style="font-size:11px;color:var(--mist);text-align:center;padding:8px;margin-bottom:12px">最大5品（${menus.length}/5）</div>`}
-      <button class="btn-next" style="width:100%" onclick="saveMenusClick()">💾 メニューを保存する</button>
+      <div style="font-size:11px;color:var(--mist);margin-bottom:14px">ドラッグで順番変更　／　トグルで表示ON/OFF</div>
+      <div id="dayMenuList">${itemCards}</div>
+      <button class="btn-next" style="width:100%;margin-top:8px" onclick="saveDayMenusClick()">💾 この日の設定を保存</button>
     </div>`:'<div style="font-size:12px;color:var(--mist)">開催日を選択してください</div>'}
-  </div>`;
+  `;
 }
 
-window.toggleMenuBulkDate=ds=>{
-  S.menuBulkDates.has(ds)?S.menuBulkDates.delete(ds):S.menuBulkDates.add(ds);
+
+// ─── マスターメニュー操作 ───
+window.updMaster=(i,k,v)=>{
+  if(CACHE.masterMenus[i]) CACHE.masterMenus[i][k]=v;
+};
+window.masterImgUpload=(i,input)=>{
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{updMaster(i,'image',e.target.result);renderAdminTab();};
+  reader.readAsDataURL(file);
+};
+window.saveMasterMenusClick=async()=>{
+  showLoad('マスターを保存中...');
+  try{
+    await saveMasterMenus();
+    // 全開催日のメニュー設定でマスターから削除された商品を除外
+    for(const date in CACHE.eventDays) {
+      const ev = CACHE.eventDays[date];
+      if(!ev.menus) continue;
+      ev.menus = ev.menus.filter(dm =>
+        CACHE.masterMenus.find(m => m.key === dm.key && m.name)
+      );
+    }
+    hideLoad();
+    alert('マスターメニューを保存しました ✓\n変更は全予約に即時反映されます');
+    renderAdminTab();
+  } catch(e){
+    hideLoad();
+    alert('保存に失敗しました: '+e.message);
+  }
+};
+
+// アレルギートグル：マスター用にidプレフィックス対応
+const originalToggleAllergy = window.toggleAllergy;
+window.toggleAllergy = (menuIdx, aid) => {
+  if(typeof menuIdx === 'string' && menuIdx.startsWith('mm')) {
+    const i = parseInt(menuIdx.slice(2));
+    const m = CACHE.masterMenus[i];
+    if(!m) return;
+    const ids = allergyToIds(m.allergy);
+    ids.has(aid) ? ids.delete(aid) : ids.add(aid);
+    m.allergy = idsToAllergy(ids);
+    const picker = document.getElementById('apicker-mm'+i);
+    if(picker) picker.querySelectorAll('.allergy-item').forEach(el=>{
+      const isSelected = ids.has(el.dataset.id);
+      el.classList.toggle('selected', isSelected);
+    });
+    return;
+  }
+  // 旧仕様も維持
+  const ev=CACHE.eventDays[S.adminMenuDate];
+  if(!ev?.menus[menuIdx]) return;
+  const ids=allergyToIds(ev.menus[menuIdx].allergy);
+  ids.has(aid)?ids.delete(aid):ids.add(aid);
+  ev.menus[menuIdx].allergy=idsToAllergy(ids);
+  const picker=document.getElementById('apicker-'+menuIdx);
+  if(picker) picker.querySelectorAll('.allergy-item').forEach(el=>{
+    const isSelected=ids.has(el.dataset.id);
+    el.classList.toggle('selected',isSelected);
+  });
+};
+
+// ─── 開催日メニュー操作 ───
+window.toggleDayMenu=(idx)=>{
+  const ev=CACHE.eventDays[S.adminMenuDate];
+  if(ev?.menus[idx]) ev.menus[idx].visible = ev.menus[idx].visible === false ? true : false;
   renderAdminTab();
 };
-window.applyMenuBulk=async()=>{
-  if(!S.adminMenuDate||!S.menuBulkDates.size) return;
-  const srcMenus=JSON.parse(JSON.stringify(CACHE.eventDays[S.adminMenuDate]?.menus||[]));
-  if(!srcMenus.length){alert('コピー元のメニューが登録されていません');return;}
-  showLoad(`${S.menuBulkDates.size}日にメニューを一括適用中...`);
+window.saveDayMenusClick=async()=>{
+  showLoad('保存中...');
+  try{
+    await saveMenus(S.adminMenuDate, CACHE.eventDays[S.adminMenuDate].menus);
+    hideLoad();
+    alert('保存しました ✓');
+  }catch(e){
+    hideLoad();
+    alert('保存に失敗しました: '+e.message);
+  }
+};
+window.applyMenuBulkV2=async()=>{
+  if(!S.adminMenuDate || !S.menuBulkDates.size) return;
+  const srcMenus = JSON.parse(JSON.stringify(CACHE.eventDays[S.adminMenuDate]?.menus || []));
+  showLoad(`${S.menuBulkDates.size}日に一括適用中...`);
   for(const ds of S.menuBulkDates){
-    if(!CACHE.eventDays[ds])continue;
-    CACHE.eventDays[ds].menus=JSON.parse(JSON.stringify(srcMenus));
-    await saveMenus(ds,CACHE.eventDays[ds].menus);
+    if(!CACHE.eventDays[ds]) continue;
+    CACHE.eventDays[ds].menus = JSON.parse(JSON.stringify(srcMenus));
+    await saveMenus(ds, CACHE.eventDays[ds].menus);
   }
   S.menuBulkDates.clear();
   hideLoad();
@@ -1964,45 +2229,25 @@ window.applyMenuBulk=async()=>{
   renderAdminTab();
 };
 
-
-// メニュー操作
-window.updMenu=(i,k,v)=>{const ev=CACHE.eventDays[S.adminMenuDate];if(ev?.menus[i])ev.menus[i][k]=v;};
-window.toggleMenuVisible=i=>{
-  const ev=CACHE.eventDays[S.adminMenuDate];
-  if(ev?.menus[i])ev.menus[i].visible=ev.menus[i].visible===false?true:false;
-  renderAdminTab();
-};
-window.menuImgUpload=(i,input)=>{
-  const file=input.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=e=>{updMenu(i,'image',e.target.result);renderAdminTab();};
-  reader.readAsDataURL(file);
-};
-window.rmMenu=i=>{const ev=CACHE.eventDays[S.adminMenuDate];if(ev)ev.menus.splice(i,1);renderAdminTab();};
-window.addMenu=()=>{
-  const ev=CACHE.eventDays[S.adminMenuDate];
-  if(ev&&ev.menus.length<5)ev.menus.push({name:'新メニュー',description:'説明を入力してください',allergy:'なし',price:1800,visible:true,image:''});
-  renderAdminTab();
-};
-window.saveMenusClick=async()=>{
-  showLoad('メニューを保存中...');
-  try{await saveMenus(S.adminMenuDate,CACHE.eventDays[S.adminMenuDate].menus);hideLoad();alert('保存しました ✓');}
-  catch(e){hideLoad();alert('保存に失敗しました: '+e.message);}
-};
-
-// ドラッグ&ドロップで並べ替え
-let menuDragIdx=null;
-window.menuDragStart=i=>{menuDragIdx=i;setTimeout(()=>document.getElementById('amc-'+i)?.classList.add('dragging'),0);};
-window.menuDragEnd=()=>{document.querySelectorAll('.admin-menu-card').forEach(c=>{c.classList.remove('dragging','drag-over');});};
-window.menuDragOver=(e,i)=>{e.preventDefault();if(menuDragIdx===i)return;document.querySelectorAll('.admin-menu-card').forEach(c=>c.classList.remove('drag-over'));document.getElementById('amc-'+i)?.classList.add('drag-over');};
-window.menuDrop=(e,i)=>{
+// ─── ドラッグ&ドロップ（開催日メニュー並び替え） ───
+let dayDragIdx=null;
+window.dayDragStart=i=>{dayDragIdx=i;setTimeout(()=>document.getElementById('dmc-'+i)?.classList.add('dragging'),0);};
+window.dayDragEnd=()=>{document.querySelectorAll('.admin-menu-card').forEach(c=>{c.classList.remove('dragging','drag-over');});};
+window.dayDragOver=(e,i)=>{e.preventDefault();if(dayDragIdx===i)return;document.querySelectorAll('.admin-menu-card').forEach(c=>c.classList.remove('drag-over'));document.getElementById('dmc-'+i)?.classList.add('drag-over');};
+window.dayDrop=(e,i)=>{
   e.preventDefault();
-  if(menuDragIdx===null||menuDragIdx===i)return;
+  if(dayDragIdx===null||dayDragIdx===i)return;
   const ev=CACHE.eventDays[S.adminMenuDate];if(!ev)return;
   const arr=ev.menus;
-  const item=arr.splice(menuDragIdx,1)[0];
+  const item=arr.splice(dayDragIdx,1)[0];
   arr.splice(i,0,item);
-  menuDragIdx=null;
+  dayDragIdx=null;
+  renderAdminTab();
+};
+
+// 既存（互換用）
+window.toggleMenuBulkDate=ds=>{
+  S.menuBulkDates.has(ds)?S.menuBulkDates.delete(ds):S.menuBulkDates.add(ds);
   renderAdminTab();
 };
 
@@ -2062,6 +2307,213 @@ window.previewTerms=()=>{
     <div style="font-size:11px;color:var(--ink2);line-height:1.95;background:var(--cream);padding:14px;border-radius:10px;white-space:pre-wrap;max-height:400px;overflow-y:auto">${val}</div>
     <div class="modal-actions"><button class="btn-back" onclick="closeModal()">閉じる</button></div>
   </div>`);
+};
+
+// ══════════════════════════════════════
+// プレス予約管理
+// ══════════════════════════════════════
+function adminPress(el){
+  // press_datesをsettingsから取得（CACHEにキャッシュ）
+  if(!CACHE.pressDates) CACHE.pressDates = [];
+
+  // プレス予約一覧を取得
+  let pressRes = CACHE.pressReservations || [];
+
+  el.innerHTML = `<div class="form-card">
+    <div class="form-eyebrow">プレス予約管理</div>
+    <div class="form-title">プレス受付期間の設定</div>
+
+    <div style="background:var(--lilac-pale);border:1px solid var(--lilac-light);border-radius:12px;padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--ink2);line-height:1.9">
+      📰 プレス予約は <strong>press.${location.hostname.replace('www.','')}</strong> でアクセス可能です。<br>
+      ここで設定した3日間が受付期間となります。<br>
+      プレス期間中は通常の予約サイトでは予約が受け付けられないようにご設定ください。
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">プレス受付日（3日分）</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${[0,1,2].map(i=>`<input type="date" class="form-input" style="width:auto;padding:8px 12px" value="${CACHE.pressDates[i]||''}" onchange="updPressDate(${i},this.value)">`).join('')}
+      </div>
+    </div>
+
+    <button class="btn-next" style="width:100%;margin-bottom:24px" onclick="savePressDates()">💾 プレス受付期間を保存</button>
+
+    <div class="form-eyebrow">プレス予約一覧</div>
+    <div class="form-title">受付済みのプレス予約</div>
+
+    ${pressRes.length === 0 ? `
+      <div style="padding:20px;text-align:center;color:var(--mist);font-size:13px;background:var(--cream2);border-radius:10px;margin-top:14px">
+        まだプレス予約はありません
+      </div>` : `
+      <div class="res-table-wrap" style="margin-top:14px">
+        <table class="res-table">
+          <thead><tr>
+            <th>予約ID</th><th>日時</th><th>人数</th><th>テーブル</th>
+            <th>法人・団体</th><th>担当者</th><th>連絡先</th><th>注文</th><th>状態</th>
+          </tr></thead>
+          <tbody>${pressRes.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).map(r=>`
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:11px">${r.id}</td>
+              <td style="font-size:11px">${r.date.slice(5).replace('-','/')} ${r.time}</td>
+              <td>${r.party}名</td>
+              <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lilac-deep)">${(r.tables||[]).join('・')}</td>
+              <td style="font-size:11px">${r.organization||'—'}</td>
+              <td style="font-size:11px">${r.last_name||''} ${r.first_name||''}</td>
+              <td style="font-size:10px;color:var(--mist)">${r.phone||''}<br>${r.email}</td>
+              <td style="font-size:10px">${(r.orders||[]).join('、')}</td>
+              <td><span class="sbadge ${r.status==='confirmed'?'sbadge-ok':'sbadge-ng'}" style="font-size:9.5px;padding:2px 9px">${r.status==='confirmed'?'確定':'取消'}</span></td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>`}
+  </div>`;
+
+  // プレス予約データを取得
+  loadPressData();
+}
+
+// ══════════════════════════════════════
+// メディア・招待予約管理（共用）
+// ══════════════════════════════════════
+function adminSpecial(el, type){
+  const isMedia = type === 'media';
+  const label    = isMedia ? 'メディア試食予約' : '招待予約';
+  const table    = isMedia ? 'media_reservations' : 'invite_reservations';
+  const datesKey = isMedia ? 'media_dates' : 'invite_dates';
+  const days     = isMedia ? 2 : 1;
+  const cacheKey = isMedia ? 'mediaReservations' : 'inviteReservations';
+  const datesCache = isMedia ? 'mediaDates' : 'inviteDates';
+  if(!CACHE[datesCache]) CACHE[datesCache] = [];
+  const reservations = CACHE[cacheKey] || [];
+
+  el.innerHTML = `<div class="form-card">
+    <div class="form-eyebrow">${label}管理</div>
+    <div class="form-title">${label}受付期間の設定</div>
+    <div style="background:var(--lilac-pale);border:1px solid var(--lilac-light);border-radius:12px;padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--ink2);line-height:1.9">
+      ${isMedia ? '📰 メディア試食予約' : '🎁 招待予約'} は <strong>${isMedia ? 'media' : 'invite'}.mapril-hanagori.com</strong> でアクセス可能です。<br>
+      受付期間：<strong>${days}日間</strong>　営業時間：<strong>12:00〜16:00</strong>
+    </div>
+    <div class="form-group">
+      <label class="form-label">受付日（${days}日分）</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${Array.from({length:days},(_,i)=>`<input type="date" class="form-input" style="width:auto;padding:8px 12px" value="${CACHE[datesCache][i]||''}" onchange="updSpecialDate('${type}',${i},this.value)">`).join('')}
+      </div>
+    </div>
+    <button class="btn-next" style="width:100%;margin-bottom:24px" onclick="saveSpecialDates('${type}','${datesKey}')">💾 受付期間を保存</button>
+
+    <div class="form-eyebrow">${label}一覧</div>
+    <div class="form-title">受付済みの予約</div>
+    ${reservations.length === 0 ? `
+      <div style="padding:20px;text-align:center;color:var(--mist);font-size:13px;background:var(--cream2);border-radius:10px;margin-top:14px">
+        まだ予約はありません
+      </div>` : `
+      <div class="res-table-wrap" style="margin-top:14px">
+        <table class="res-table">
+          <thead><tr>
+            <th>予約ID</th><th>日時</th><th>人数</th><th>テーブル</th>
+            <th>${isMedia ? '法人・団体' : '所属（任意）'}</th><th>担当者</th><th>連絡先</th><th>注文</th><th>状態</th>
+          </tr></thead>
+          <tbody>${reservations.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).map(r=>`
+            <tr>
+              <td style="font-family:'DM Mono',monospace;font-size:11px">${r.id}</td>
+              <td style="font-size:11px">${r.date.slice(5).replace('-','/')} ${r.time}</td>
+              <td>${r.party}名</td>
+              <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--lilac-deep)">${(r.tables||[]).join('・')}</td>
+              <td style="font-size:11px">${r.organization||'—'}</td>
+              <td style="font-size:11px">${r.last_name||''} ${r.first_name||''}</td>
+              <td style="font-size:10px;color:var(--mist)">${r.phone||''}<br>${r.email}</td>
+              <td style="font-size:10px">${(r.orders||[]).join('、')}</td>
+              <td><span class="sbadge ${r.status==='confirmed'?'sbadge-ok':'sbadge-ng'}" style="font-size:9.5px;padding:2px 9px">${r.status==='confirmed'?'確定':'取消'}</span></td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>`}
+  </div>`;
+
+  // データ取得
+  loadSpecialData(type, table, datesKey, cacheKey, datesCache);
+}
+
+async function loadSpecialData(type, table, datesKey, cacheKey, datesCache){
+  if(!isConfigured) return;
+  try {
+    const {data:st} = await sb.from('settings').select('*').eq('key', datesKey).single();
+    if(st?.value) {
+      try { CACHE[datesCache] = JSON.parse(st.value); } catch(e) { CACHE[datesCache] = []; }
+    }
+    const {data:res} = await sb.from(table).select('*');
+    CACHE[cacheKey] = (res||[]).map(r=>({...r, time: r.time.slice(0,5)}));
+    if(S.adminTab === type || (type==='media' && S.adminTab==='media') || (type==='invite' && S.adminTab==='invite')) renderAdminTab();
+  } catch(e) { console.warn('loadSpecialData error:', e); }
+}
+
+window.updSpecialDate = (type, idx, value) => {
+  const key = type === 'media' ? 'mediaDates' : 'inviteDates';
+  if(!CACHE[key]) CACHE[key] = [];
+  CACHE[key][idx] = value;
+};
+
+window.saveSpecialDates = async (type, datesKey) => {
+  const key = type === 'media' ? 'mediaDates' : 'inviteDates';
+  const days = type === 'media' ? 2 : 1;
+  const valid = (CACHE[key] || []).filter(d => d);
+  if(valid.length !== days) {
+    alert(`受付日を${days}日分すべて入力してください`);
+    return;
+  }
+  showLoad('保存中...');
+  try {
+    await sb.from('settings').upsert({ key: datesKey, value: JSON.stringify(valid) });
+    CACHE[key] = valid;
+    hideLoad();
+    alert('受付期間を保存しました ✓');
+  } catch(e) {
+    hideLoad();
+    alert('保存に失敗しました: ' + e.message);
+  }
+};
+
+async function loadPressData() {
+  if(!isConfigured) return;
+  try {
+    // press_dates設定
+    const {data:st} = await sb.from('settings').select('*').eq('key','press_dates').single();
+    if(st?.value) {
+      try { CACHE.pressDates = JSON.parse(st.value); }
+      catch(e) { CACHE.pressDates = []; }
+    }
+    // press_reservations
+    const {data:pres} = await sb.from('press_reservations').select('*');
+    CACHE.pressReservations = (pres||[]).map(r=>({...r, time: r.time.slice(0,5)}));
+    if(S.adminTab === 'press') renderAdminTab();
+  } catch(e) {
+    console.warn('loadPressData error:', e);
+  }
+}
+
+window.updPressDate = (idx, value) => {
+  if(!CACHE.pressDates) CACHE.pressDates = [];
+  CACHE.pressDates[idx] = value;
+};
+
+window.savePressDates = async () => {
+  // 空欄を除く
+  const valid = (CACHE.pressDates || []).filter(d => d);
+  if(valid.length !== 3) {
+    alert('プレス受付日を3日分すべて入力してください');
+    return;
+  }
+  showLoad('保存中...');
+  try {
+    await sb.from('settings').upsert({
+      key: 'press_dates',
+      value: JSON.stringify(valid)
+    });
+    CACHE.pressDates = valid;
+    hideLoad();
+    alert('プレス受付期間を保存しました ✓');
+  } catch(e) {
+    hideLoad();
+    alert('保存に失敗しました: ' + e.message);
+  }
 };
 
 // ══════════════════════════════════════
@@ -2262,6 +2714,37 @@ function ksPrev(){ksIdx=(ksIdx-1+KS_COUNT)%KS_COUNT;ksRender();}
 // 自動スライド（5秒ごと）
 setInterval(()=>{if(document.getElementById('kSlider'))ksNext();},5000);
 
+
+// ── メール送信関数 ──
+async function sendConfirmationEmail(data) {
+  const tmpl = CACHE.thankyouTemplate || '';
+  const body = tmpl
+    .replace('{id}',     data.id)
+    .replace('{name}',   data.name)
+    .replace('{date}',   data.date)
+    .replace('{time}',   `${data.time}〜${data.exit}`)
+    .replace('{party}',  String(data.party))
+    .replace('{tables}', data.tables)
+    .replace('{orders}', data.orders);
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/send-confirmation`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+    },
+    body: JSON.stringify({
+      email:   data.email,
+      subject: `【パティシエのつくる夏花氷】ご予約確認 ${data.id}`,
+      body,
+      name:    data.name,
+    }),
+  });
+  if(!res.ok) {
+    const err = await res.json().catch(()=>({}));
+    throw new Error(err.error || '確認メール送信失敗');
+  }
+}
 
 async function init(){
   initSupabase();
