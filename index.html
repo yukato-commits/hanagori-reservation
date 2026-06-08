@@ -462,6 +462,11 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(253,250,246,
 .phase-cap-dot.pc-next{background:#ececf0;border:1px solid #c9c4d2;}
 .phase-cap-dot.pc-later{background:#d9d6de;border:1px solid #b7b2c0;}
 .phase-cap-row em{font-style:normal;color:var(--lilac-deep);font-size:10px;}
+.ecd-phase-label{position:absolute;top:-7px;left:-1px;z-index:6;white-space:nowrap;font-size:9px;line-height:1.4;padding:1px 7px;border-radius:8px;background:#8b6aaa;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);font-family:'Noto Serif JP',serif;}
+.ecd-phase-label.pl-later{background:#8a8294;}
+.ecd-phase-label.pl-right{left:auto;right:-1px;}
+.ecal-days{overflow:visible;}
+.ecd.upcoming{overflow:visible;}
 </style>
 </head>
 <body>
@@ -733,7 +738,7 @@ window.toggleAllergy=(menuIdx, aid)=>{
   const picker=document.getElementById('apicker-'+menuIdx);
   if(picker) picker.querySelectorAll('.allergy-row').forEach(el=>{
     const isSelected=ids.has(el.dataset.id);
-    el.classList.toggle('selected',isSelected);
+    el.classList.toggle('selected',isSelected); const _c=el.querySelector('.allergy-check'); if(_c)_c.textContent=isSelected?'✓':'';
   });
 };
 
@@ -1100,7 +1105,7 @@ function fmtMD(ds){ if(!ds)return''; const p=String(ds).split('-'); return (+p[1
 function _phasesSorted(){ return (CACHE.releasePhases||[]).filter(p=>p&&p.start&&p.end).slice().sort((a,b)=>a.start<b.start?-1:1); }
 function phaseReleased(p){ return Object.values(CACHE.eventDays).some(ev=>ev&&ev.open&&ev.date>=p.start&&ev.date<=p.end); }
 function unreleasedPhases(){ const t=_todayStr(); return _phasesSorted().filter(p=>p.end>=t && !phaseReleased(p)); }
-function dayPhase(date){ const up=unreleasedPhases(); for(let i=0;i<up.length;i++){ if(date>=up[i].start && date<=up[i].end) return {label:up[i].label||'', tier:i===0?'next':'later'}; } return null; }
+function dayPhase(date){ const up=unreleasedPhases(); for(let i=0;i<up.length;i++){ const p=up[i]; if(date>=p.start && date<=p.end) return {label:p.label||'', tier:i===0?'next':'later', start:p.start, end:p.end}; } return null; }
 function phaseCaptionHtml(){ const up=unreleasedPhases(); if(!up.length) return ''; return '<div class="phase-caption">'+up.map((p,i)=>'<div class="phase-cap-row"><span class="phase-cap-dot '+(i===0?'pc-next':'pc-later')+'"></span><span>'+(p.label||'近日公開')+'：'+fmtMD(p.start)+'〜'+fmtMD(p.end)+'　<em>'+(i===0?'次回公開予定':'以降公開予定')+'</em></span></div>').join('')+'</div>'; }
 function phaseEditorHtml(){
   const rows=(CACHE.releasePhases||[]);
@@ -1241,7 +1246,12 @@ function rStep0(el){
     else cls+=' click st-'+st;
     if(sel)cls+=' sel';
     const ck=(!ph&&st!=='closed'&&st!=='full'&&!past)?`onclick="selDate('${ds}')"`:'' ;
-    cells+=`<div class="${cls}" ${ck}${ph?` title="${(ph.label||'近日公開')} 近日公開"`:''}><div class="ecd-day">${d}</div>${ph?'<div class="ecd-phase">🔒</div>':(st!=='closed'?'<div class="ecd-dot"></div>':'')}</div>`;
+    let phLabel='';
+    if(ph && (ds===ph.start || d===1)){
+      const col=(first + d - 1) % 7;
+      phLabel=`<div class="ecd-phase-label${ph.tier==='later'?' pl-later':''}${col>=5?' pl-right':''}">${ph.label||'近日公開'}</div>`;
+    }
+    cells+=`<div class="${cls}" ${ck}${ph?` title="${(ph.label||'近日公開')} 近日公開"`:''}><div class="ecd-day">${d}</div>${phLabel}${(!ph&&st!=='closed')?'<div class="ecd-dot"></div>':''}</div>`;
   }
   el.innerHTML=`<div class="form-card">
     <div class="form-eyebrow">step 01</div>
@@ -2260,7 +2270,7 @@ window.toggleAllergy = (menuIdx, aid) => {
     const picker = document.getElementById('apicker-mm'+i);
     if(picker) picker.querySelectorAll('.allergy-row').forEach(el=>{
       const isSelected = ids.has(el.dataset.id);
-      el.classList.toggle('selected', isSelected);
+      el.classList.toggle('selected', isSelected); const _c=el.querySelector('.allergy-check'); if(_c)_c.textContent=isSelected?'✓':'';
     });
     return;
   }
@@ -2273,7 +2283,7 @@ window.toggleAllergy = (menuIdx, aid) => {
   const picker=document.getElementById('apicker-'+menuIdx);
   if(picker) picker.querySelectorAll('.allergy-row').forEach(el=>{
     const isSelected=ids.has(el.dataset.id);
-    el.classList.toggle('selected',isSelected);
+    el.classList.toggle('selected',isSelected); const _c=el.querySelector('.allergy-check'); if(_c)_c.textContent=isSelected?'✓':'';
   });
 };
 
