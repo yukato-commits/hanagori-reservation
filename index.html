@@ -484,6 +484,32 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(253,250,246,
   .nav-links span.nav-link:not(:nth-last-of-type(1)){display:none;} /* 情報リンクを畳む（最後のspan＝予約確認は残す） */
   .nav-btn{padding:8px 14px;font-size:11px;}
 }
+
+/* ====== レスポンシブ再調整（追加・上書き） ====== */
+html,body{overflow-x:hidden;max-width:100%;}
+img{max-width:100%;}
+@media(max-width:640px){
+  nav{padding:0 14px;gap:6px;}
+  .nav-logo{min-width:0;flex:1 1 auto;overflow:hidden;}
+  .nav-logo-en{font-size:7.5px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .nav-logo-jp{font-size:13px;letter-spacing:.1em;white-space:nowrap;}
+  .nav-links{gap:10px;flex:0 0 auto;}
+  .nav-btn{padding:7px 12px;font-size:10.5px;white-space:nowrap;}
+  .hero{padding:74px 16px 50px;}
+  .hero-badge{font-size:8.5px;letter-spacing:.2em;margin-bottom:18px;max-width:100%;line-height:1.6;}
+  .hero-title{font-size:clamp(26px,8vw,40px);letter-spacing:.05em;line-height:1.3;}
+  .hero-title em{font-size:clamp(38px,13vw,60px);}
+  .hero-sub{font-size:14px;letter-spacing:.1em;margin-bottom:30px;}
+  .hero-pills{margin-bottom:32px;width:100%;}
+  .hero-pill{min-width:0;flex:1 1 0;padding:12px 4px;gap:3px;}
+  .pill-text{font-size:8.5px;letter-spacing:.01em;white-space:normal;text-align:center;line-height:1.3;}
+  .section-title{font-size:clamp(20px,6vw,30px);}
+}
+@media(max-width:360px){
+  .nav-logo-en{display:none;}
+  .hero-pill{padding:10px 2px;}
+  .pill-text{font-size:8px;}
+}
 </style>
 </head>
 <body>
@@ -913,7 +939,7 @@ function loadFallbackData() {
     const open=dow===0||dow===6;
     CACHE.eventDays[ds]={date:ds,open,shift_type:'A',extra_hour:false,menus:open?menus.map(m=>({...m})):[]};
   }
-  CACHE.thankyouTemplate=`パティシエのつくる夏花氷 ご予約ありがとうございます。\n\nご予約番号：{id}\nお名前：{name} 様\nご来店日時：{date} {time}\n人数：{party}名\n\nご注文内容：\n{orders}\n\n当日は予約番号をご提示ください。\nお支払いは当日店舗にてお受けします。\n\nメイプリル 西荻窪スタジオ\n杉並区西荻北3-38-16\n\n— SWEETS DESIGN STUDIO MAPRIL`;
+  CACHE.thankyouTemplate=`氷の花物語 at MAPRIL ご予約ありがとうございます。\n\nご予約番号：{id}\nお名前：{name} 様\nご来店日時：{date} {time}\n人数：{party}名\n\nご注文内容：\n{orders}\n\n当日は予約番号をご提示ください。\nお支払いは当日店舗にてお受けします。\n\nメイプリル 西荻窪スタジオ\n杉並区西荻北3-38-16\n\n— SWEETS DESIGN STUDIO MAPRIL`;
   CACHE.loaded=true;
 }
 
