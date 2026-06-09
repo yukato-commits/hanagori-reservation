@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>パティシエのつくる夏花氷 — メイプリルのフラワーパーラー</title>
+<meta name="description" content="パティシエがつくる、夏だけの花のかき氷。完全予約制のフラワーパーラーです。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="パティシエのつくる夏花氷 — メイプリルのフラワーパーラー">
+<meta property="og:description" content="パティシエがつくる、夏だけの花のかき氷。完全予約制のフラワーパーラーです。">
+<meta property="og:url" content="https://mapril-hanagori.com">
+<meta name="twitter:card" content="summary">
 
 <!-- ============================================================
   夏花氷 at MAPRIL — 予約システム（Supabase + Vercel 本番版）
@@ -907,7 +913,7 @@ function loadFallbackData() {
     const open=dow===0||dow===6;
     CACHE.eventDays[ds]={date:ds,open,shift_type:'A',extra_hour:false,menus:open?menus.map(m=>({...m})):[]};
   }
-  CACHE.thankyouTemplate=`パティシエのつくる夏花氷 ご予約ありがとうございます。\n\nご予約番号：{id}\nお名前：{name} 様\nご来店日時：{date} {time}〜\n人数：{party}名\nご使用テーブル：{tables}\n\nご注文内容：\n{orders}\n\n当日は予約番号をご提示ください。\nお支払いは当日店舗にてお受けします。\n\nメイプリル 西荻窪スタジオ\n杉並区西荻北3-38-16\n\n— SWEETS DESIGN STUDIO MAPRIL`;
+  CACHE.thankyouTemplate=`パティシエのつくる夏花氷 ご予約ありがとうございます。\n\nご予約番号：{id}\nお名前：{name} 様\nご来店日時：{date} {time}\n人数：{party}名\n\nご注文内容：\n{orders}\n\n当日は予約番号をご提示ください。\nお支払いは当日店舗にてお受けします。\n\nメイプリル 西荻窪スタジオ\n杉並区西荻北3-38-16\n\n— SWEETS DESIGN STUDIO MAPRIL`;
   CACHE.loaded=true;
 }
 
@@ -2530,7 +2536,7 @@ function adminSpecial(el, type){
         <table class="res-table">
           <thead><tr>
             <th>予約ID</th><th>日時</th><th>人数</th><th>テーブル</th>
-            <th>${isMedia ? '法人・団体' : '所属（任意）'}</th><th>担当者</th><th>連絡先</th><th>注文</th><th>状態</th>
+            <th>${isMedia ? '法人・団体' : '所属（任意）'}</th><th>担当者</th><th>連絡先</th><th>注文</th><th>状態</th><th>操作</th>
           </tr></thead>
           <tbody>${reservations.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).map(r=>`
             <tr>
@@ -2543,6 +2549,7 @@ function adminSpecial(el, type){
               <td style="font-size:10px;color:var(--mist)">${r.phone||''}<br>${r.email}</td>
               <td style="font-size:10px">${(r.orders||[]).join('、')}</td>
               <td><span class="sbadge ${r.status==='confirmed'?'sbadge-ok':'sbadge-ng'}" style="font-size:9.5px;padding:2px 9px">${r.status==='confirmed'?'確定':'取消'}</span></td>
+              <td>${r.status==='confirmed'?`<button onclick="admCancelSpecial('${type}','${r.id}')" style="background:var(--danger);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:10px;cursor:pointer;font-family:'Noto Serif JP',serif">取消</button>`:'<span style="color:var(--mist);font-size:10px">—</span>'}</td>
             </tr>`).join('')}</tbody>
         </table>
       </div>`}
@@ -2580,6 +2587,18 @@ window.saveSpecialTerms = async (type)=>{
     if(type==='media') CACHE.termsMedia=val; else CACHE.termsInvite=val;
     if(typeof hideLoad==='function')hideLoad(); alert('利用規約を保存しました ✓');
   }catch(e){ if(typeof hideLoad==='function')hideLoad(); alert('保存に失敗：'+(e.message||e)); }
+};
+window.admCancelSpecial = async (type, id)=>{
+  const tbl = type==='media'?'media_reservations':'invite_reservations';
+  const ck = type==='media'?'mediaReservations':'inviteReservations';
+  const r=(CACHE[ck]||[]).find(x=>x.id===id); if(!r) return;
+  if(!confirm('予約 '+id+' を取消しますか？\nこの枠は空き枠として再開放されます。')) return;
+  if(typeof showLoad==='function')showLoad('取消処理中...');
+  try{
+    if(typeof isConfigured==='undefined'||isConfigured){ await sb.from(tbl).update({status:'cancelled', cancelled_at:new Date().toISOString()}).eq('id',id); }
+    const idx=(CACHE[ck]||[]).findIndex(x=>x.id===id); if(idx>=0) CACHE[ck][idx].status='cancelled';
+    if(typeof hideLoad==='function')hideLoad(); renderAdminTab();
+  }catch(e){ if(typeof hideLoad==='function')hideLoad(); alert('取消に失敗：'+(e.message||e)); }
 };
 window.saveSpecialDates = async (type, datesKey) => {
   const key = type === 'media' ? 'mediaDates' : 'inviteDates';
