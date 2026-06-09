@@ -1049,10 +1049,12 @@ async function saveTemplate(tmpl) {
 // 空き計算ロジック
 // ══════════════════════════════════════
 const SITE = 'general';
+function _myHoldIds(){ try{ return JSON.parse(localStorage.getItem('maprilMyHolds')||'[]'); }catch(e){ return []; } }
+function _addMyHold(id){ try{ if(id==null) return; const a=_myHoldIds(); a.push(id); localStorage.setItem('maprilMyHolds', JSON.stringify(a.slice(-30))); }catch(e){} }
 function activeHolds(date){
-  const now=Date.now();
+  const now=Date.now(); const mine=_myHoldIds();
   return (CACHE.holds||[])
-    .filter(h=>h.date===date && h.id!==S.holdId && new Date(h.expires_at).getTime()>now)
+    .filter(h=>h.date===date && h.id!==S.holdId && !mine.includes(h.id) && new Date(h.expires_at).getTime()>now)
     .map(h=>({id:'hold_'+h.id, date:h.date, time:(''+h.time).slice(0,5), party:h.party, tables:h.tables||[], status:'confirmed'}));
 }
 function blockers(date, excludeId){
@@ -1063,6 +1065,7 @@ function blockers(date, excludeId){
 async function refreshHolds(){
   if(!isConfigured) return;
   try{
+    try{ await sb.from('slot_holds').delete().lt('expires_at', new Date().toISOString()); }catch(e){}
     const {data:hd}=await sb.from('slot_holds').select('*').eq('site',SITE).gt('expires_at',new Date().toISOString());
     CACHE.holds = hd||[];
   }catch(e){ console.warn('refreshHolds',e); }
@@ -1076,6 +1079,7 @@ async function holdSlot(t, tbls){
       .insert({site:SITE, date:S.r.date, time:t+':00', tables:tbls, party:S.r.party, expires_at:exp})
       .select('id').single();
     S.holdId = data?.id || null;
+    _addMyHold(S.holdId);
   }catch(e){ console.warn('holdSlot',e); }
 }
 async function releaseHold(){
