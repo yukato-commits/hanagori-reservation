@@ -2150,11 +2150,7 @@ function renderMenuMaster(){
             <div class="form-group"><label class="form-label">価格（円）</label><input class="form-input" type="number" value="${m.price}" oninput="updMaster(${i},'price',+this.value)"></div>
           </div>
           <div class="form-group"><label class="form-label">説明</label><input class="form-input" value="${m.description}" oninput="updMaster(${i},'description',this.value)" placeholder="商品の説明"></div>
-          <div class="form-group">
-            <label class="form-label">アレルギー（該当するものをクリック）</label>
-            ${allergyPickerHtml(m.allergy||'なし', 'mm'+i)}
-            <div style="font-size:10px;color:var(--mist);margin-top:4px">選択中：${m.allergy||'なし'}</div>
-          </div>
+          <div class="form-group"><label class="form-label">アレルギー</label><input class="form-input" value="${(m.allergy||'').replace(/"/g,'&quot;')}" oninput="updMaster(${i},'allergy',this.value)" placeholder="例：乳・大豆（無い場合は空欄でOK）"></div>
         </div>
       </div>
     </div>`).join('');
