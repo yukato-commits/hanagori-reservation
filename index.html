@@ -944,8 +944,17 @@ function loadFallbackData() {
 }
 
 // ── 予約の保存 ──
+async function genReservationId(prefix, table){
+  for(let i=0;i<25;i++){
+    const cand=prefix+Math.floor(10000+Math.random()*90000);
+    if(CACHE.reservations.some(r=>r.id===cand)) continue;
+    if(typeof isConfigured!=='undefined' && isConfigured){ try{ const {data}=await sb.from(table).select('id').eq('id',cand); if(data&&data.length) continue; }catch(e){} }
+    return cand;
+  }
+  return prefix+String(Date.now()).slice(-8);
+}
 async function saveReservation(res) {
-  const id = 'HN-' + Math.floor(1000+Math.random()*9000);
+  const id = await genReservationId('HN-','reservations');
   const data = {
     id, date:res.date, time:res.time+':00',
     party:res.party, tables:res.tables,
