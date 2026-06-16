@@ -526,6 +526,11 @@ img{max-width:100%;}
 .line-cta-qr img{border:1px solid var(--border,#ece6ee);border-radius:14px;padding:10px;background:#fff;}
 .line-cta-qr span{font-size:11px;color:var(--mist,#aaa);letter-spacing:.05em;}
 @media(max-width:640px){.line-cta{padding:26px 20px;}.line-cta-title{font-size:19px;}}
+
+/* 満席日の明示表示 */
+.ecd.full{opacity:1 !important;pointer-events:none;background:var(--rose-light);border:1px solid var(--rose);}
+.ecd.full .ecd-day{color:var(--rose);}
+.ecd-full-tag{font-size:7.5px;font-weight:700;line-height:1;color:var(--rose);font-family:'Noto Serif JP',serif;letter-spacing:.02em;margin-top:1px;}
 </style>
 </head>
 <body>
@@ -1343,7 +1348,7 @@ function rStep0(el){
         phLabel=`<div class="ecd-phase-label${ph.tier==='later'?' pl-later':''}${col>=5?' pl-right':''}">${ph.label||'近日公開'}</div>`;
       }
     }
-    cells+=`<div class="${cls}" ${ck}${ph?` title="${(ph.label||'近日公開')} 近日公開"`:''}><div class="ecd-day">${d}</div>${phLabel}${(!ph&&st!=='closed')?'<div class="ecd-dot"></div>':''}</div>`;
+    cells+=`<div class="${cls}" ${ck}${ph?` title="${(ph.label||'近日公開')} 近日公開"`:''}><div class="ecd-day">${d}</div>${phLabel}${ph?'':(st==='full'?'<div class="ecd-full-tag">満席</div>':(st!=='closed'?'<div class="ecd-dot"></div>':''))}</div>`;
   }
   el.innerHTML=`<div class="form-card">
     <div class="form-eyebrow">step 01</div>
