@@ -1166,6 +1166,7 @@ function getMachineNext(date, excludeId) {
 }
 
 function getSlots(date, party) {
+  if(isApplyClosed(date))return[];
   const ev=CACHE.eventDays[date];
   if(!ev||!ev.open) return [];
   const st=ev.shift_type||'A';
@@ -1188,6 +1189,8 @@ function getSlots(date, party) {
   return slots;
 }
 
+function isApplyClosed(date){const ev=CACHE.eventDays[date];return !!(ev&&ev.open&&ev.apply_closed);}
+window.applyClosedMsg=function(){alert('満席のためお申込みいただけません。');};
 function getDayStatus(date){
   const ev=CACHE.eventDays[date];if(!ev||!ev.open)return'closed';
   if(!getSlots(date,1).length)return'full';
@@ -1340,7 +1343,7 @@ function rStep0(el){
     else if(st==='full')cls+=' full';
     else cls+=' click st-'+st;
     if(sel)cls+=' sel';
-    const ck=(!ph&&st!=='closed'&&st!=='full'&&!past)?`onclick="selDate('${ds}')"`:'' ;
+    const ck=(!ph&&st!=='closed'&&st!=='full'&&!past)?`onclick="selDate('${ds}')"`:((isApplyClosed(ds)&&!past)?`onclick="applyClosedMsg()" style="cursor:pointer"`:'') ;
     let phLabel='';
     if(ph){
       const col=(first + d - 1) % 7;
@@ -1606,6 +1609,7 @@ async function submitRes(){
   if(!S.r.lastName||!S.r.firstName){alert('お名前をご入力ください');return;}
   if(!S.r.lastKana||!S.r.firstKana){alert('ふりがなをご入力ください');return;}
   if(!S.r.phone){alert('電話番号をご入力ください');return;}
+  if(isApplyClosed(S.r.date)){alert('満席のためお申込みいただけません。');S.rStep=0;renderReserve();return;}
   if(S.submitting) return; S.submitting=true;
   const _btn=document.getElementById('submitBtn'); if(_btn) _btn.disabled=true;
   showLoad('予約を確定しています...');
