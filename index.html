@@ -470,6 +470,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(253,250,246,
 .phase-cap-row em{font-style:normal;color:var(--lilac-deep);font-size:10px;}
 .ecd-phase-label{position:absolute;top:-7px;left:-1px;z-index:6;white-space:nowrap;font-size:9px;line-height:1.4;padding:1px 7px;border-radius:8px;background:#8b6aaa;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);font-family:'Noto Serif JP',serif;}
 .ecd-phase-label.pl-later{background:#8a8294;}
+.ecd-phase-label.pl-sched{background:#bf922f;}
 .ecd-phase-label.pl-right{left:auto;right:-1px;}
 .ecal-days{overflow:visible;}
 .ecd.upcoming{overflow:visible;}
@@ -842,6 +843,7 @@ const DB_TERMS_DEFAULT = `■ ご予約について
 const SHIFTS = {
   A:{label:'Aシフト（人数×5分）', fn:p=>p*5},
   B:{label:'Bシフト（1-2名=5分 / 3-4名=10分）', fn:p=>p<=2?5:10},
+  C:{label:'Cシフト（同卓は前後客の間に10分間隔）', fn:p=>p<=2?5:10},
 };
 const USE_BASE=40, JOIN_OFFSET=10, JOIN_USE_2ND=50, MACHINE_PER=5;
 
@@ -1126,15 +1128,16 @@ async function releaseHold(){
   const id=S.holdId; S.holdId=null;
   try{ await sb.from('slot_holds').delete().eq('id', id); }catch(e){}
 }
+function tableGap(st){ return st==='C'?10:0; }  // Cシフト：同卓は前後客の間に10分間隔
 function getOccupiedAt(date, timeMin, excludeId, newParty) {
   const ev=CACHE.eventDays[date];
   const st=ev?.shift_type||'A';
   const occ=new Set();
   // newParty指定時は「新規予約の利用時間(40/50分)」の区間と既存予約の区間が重なるかで判定
-  const nEnd=(newParty!=null)?timeMin+occupyMinutes(newParty,st):timeMin;
+  const nEnd=(newParty!=null)?timeMin+occupyMinutes(newParty,st)+tableGap(st):timeMin;
   blockers(date,excludeId)
     .forEach(r=>{
-      const rs=toMin(r.time),re=rs+occupyMinutes(r.party,st);
+      const rs=toMin(r.time),re=rs+occupyMinutes(r.party,st)+tableGap(st);
       const hit=(newParty!=null)?(rs<nEnd&&timeMin<re):(timeMin>=rs&&timeMin<re);
       if(hit)(r.tables||[]).forEach(t=>occ.add(t));
     });
@@ -1201,7 +1204,7 @@ function getDayStatus(date){
 function _todayStr(){ const t=new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; }
 function fmtMD(ds){ if(!ds)return''; const p=String(ds).split('-'); return (+p[1])+'/'+(+p[2]); }
 function _phasesSorted(){ return (CACHE.releasePhases||[]).filter(p=>p&&p.start&&p.end).slice().sort((a,b)=>a.start<b.start?-1:1); }
-function phaseReleased(p){ return Object.values(CACHE.eventDays).some(ev=>ev&&ev.open&&ev.date>=p.start&&ev.date<=p.end); }
+function phaseReleased(p){ return !!p.released; }
 function unreleasedPhases(){ const t=_todayStr(); return _phasesSorted().filter(p=>p.end>=t && !phaseReleased(p)); }
 function dayPhase(date){ const up=unreleasedPhases(); for(let i=0;i<up.length;i++){ const p=up[i]; if(date>=p.start && date<=p.end) return {label:p.label||'', tier:i===0?'next':'later', start:p.start, end:p.end}; } return null; }
 function phaseCaptionHtml(){ const up=unreleasedPhases(); if(!up.length) return ''; return '<div class="phase-caption">'+up.map((p,i)=>'<div class="phase-cap-row"><span class="phase-cap-dot '+(i===0?'pc-next':'pc-later')+'"></span><span>'+(p.label||'近日公開')+'：'+fmtMD(p.start)+'〜'+fmtMD(p.end)+'　<em>'+(i===0?'次回公開予定':'以降公開予定')+'</em></span></div>').join('')+'</div>'; }
@@ -1335,7 +1338,7 @@ function rStep0(el){
     const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dO=new Date(ds);dO.setHours(0,0,0,0);
     const past=dO<today,st=getDayStatus(ds),sel=S.r.date===ds;
-    const ph=(!past && st==='closed') ? dayPhase(ds) : null;
+    const ph=(!past) ? dayPhase(ds) : null;
     let cls='ecd';
     if(past)cls+=' past';
     else if(ph)cls+=' upcoming '+(ph.tier==='next'?'upcoming-next':'upcoming-later');
@@ -1344,14 +1347,20 @@ function rStep0(el){
     else cls+=' click st-'+st;
     if(sel)cls+=' sel';
     const ck=(!ph&&st!=='closed'&&st!=='full'&&!past)?`onclick="selDate('${ds}')"`:((isApplyClosed(ds)&&!past)?`onclick="applyClosedMsg()" style="cursor:pointer"`:'') ;
-    let phLabel='';
+    let phLabel='', phTitle='';
     if(ph){
       const col=(first + d - 1) % 7;
-      if(ds===ph.start || d===1 || col===0){
-        phLabel=`<div class="ecd-phase-label${ph.tier==='later'?' pl-later':''}${col>=5?' pl-right':''}">${ph.label||'近日公開'}</div>`;
+      const _evd=CACHE.eventDays[ds];
+      if(_evd&&_evd.open){
+        phLabel=`<div class="ecd-phase-label pl-sched${col>=5?' pl-right':''}">開催予定</div>`; phTitle='開催予定日（予約受付前）';
+      } else {
+        phTitle=(ph.label||'近日公開')+' 近日公開';
+        if(ds===ph.start || d===1 || col===0){
+          phLabel=`<div class="ecd-phase-label${ph.tier==='later'?' pl-later':''}${col>=5?' pl-right':''}">${ph.label||'近日公開'}</div>`;
+        }
       }
     }
-    cells+=`<div class="${cls}" ${ck}${ph?` title="${(ph.label||'近日公開')} 近日公開"`:''}><div class="ecd-day">${d}</div>${phLabel}${ph?'':(st==='full'?'<div class="ecd-full-tag">満席</div>':(st!=='closed'?'<div class="ecd-dot"></div>':''))}</div>`;
+    cells+=`<div class="${cls}" ${ck}${ph?` title="${phTitle}"`:''}><div class="ecd-day">${d}</div>${phLabel}${ph?'':(st==='full'?'<div class="ecd-full-tag">満席</div>':(st!=='closed'?'<div class="ecd-dot"></div>':''))}</div>`;
   }
   el.innerHTML=`<div class="form-card">
     <div class="form-eyebrow">step 01</div>
@@ -1610,6 +1619,7 @@ async function submitRes(){
   if(!S.r.lastKana||!S.r.firstKana){alert('ふりがなをご入力ください');return;}
   if(!S.r.phone){alert('電話番号をご入力ください');return;}
   if(isApplyClosed(S.r.date)){alert('満席のためお申込みいただけません。');S.rStep=0;renderReserve();return;}
+  if(dayPhase(S.r.date)){alert('この開催日はまだ予約受付前です（開催予定日）。');S.rStep=0;renderReserve();return;}
   if(S.submitting) return; S.submitting=true;
   const _btn=document.getElementById('submitBtn'); if(_btn) _btn.disabled=true;
   showLoad('予約を確定しています...');
