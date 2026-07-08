@@ -713,6 +713,11 @@ img{max-width:100%;}
 <div id="page-reserve" class="page" style="padding-top:68px">
   <div class="reserve-wrap">
     <div class="reserve-header"><div class="reserve-eyebrow">reservation</div><div class="reserve-title">ご予約</div></div>
+    <div class="sys-notice" style="margin:0 0 22px;padding:14px 18px;border:1px solid #d9534f;border-radius:10px;background:#fdf5f4;color:#c0392b;font-size:12.5px;line-height:1.9;text-align:left">
+      <strong style="display:block;margin-bottom:4px">お知らせ</strong>
+      2026年7月8日午前9時45分ごろ予約システムにおける認証コード送信サービスに不具合が発生し、一時予約の受付ができない状態となっておりました。2026年7月8日午後１時現在完全に復旧しております。<br>
+      皆様にはご迷惑をお掛けして大変申し訳ありません。
+    </div>
     <div class="step-bar" id="stepBar"></div>
     <div id="reserveContent"></div>
   </div>
@@ -2158,9 +2163,18 @@ function generateSeatingChart(date, reservations){
   const colors=['#d4a0c0','#a0c0d4','#a0d4b0','#d4c0a0','#c0a0d4','#d4a0a0','#a0d4d4','#d4d4a0','#b0a0d4','#d4b0a0'];
   const headerCells=timeSlots.map(t=>`<th>${t}</th>`).join('');
   const bodyRows=tables.map(t=>{
-    const cells=timeSlots.map(slot=>{
-      const res=reservations.find(r=>{
-        if(!(r.tables||[]).includes(t))return false;
+    // 同卓で時間が重なる予約はレーン分割して全件表示（ダブルブッキング可視化）
+    const tRes=reservations.filter(r=>(r.tables||[]).includes(t)).slice().sort((a,b)=>toMin(a.time)-toMin(b.time));
+    const lanes=[];
+    tRes.forEach(r=>{
+      const rs=toMin(r.time), re=rs+occupyMinutes(r.party,st);
+      let lane=lanes.find(L=>L.every(x=>{const xs=toMin(x.time),xe=xs+occupyMinutes(x.party,st);return re<=xs||xe<=rs;}));
+      if(!lane){lane=[];lanes.push(lane);}
+      lane.push(r);
+    });
+    if(!lanes.length) lanes.push([]);
+    const buildCells=(laneRes)=>timeSlots.map(slot=>{
+      const res=laneRes.find(r=>{
         const rs=toMin(r.time),re=rs+occupyMinutes(r.party,st);
         return toMin(slot)>=rs&&toMin(slot)<re;
       });
@@ -2170,7 +2184,10 @@ function generateSeatingChart(date, reservations){
       }
       return '<td></td>';
     }).join('');
-    return `<tr><th>${t}番</th>${cells}</tr>`;
+    return lanes.map((laneRes,li)=>{
+      const head=(li===0)?`<th rowspan="${lanes.length}">${t}番${lanes.length>1?'<span style="display:block;font-size:8px;color:#a83d2e">⚠重複</span>':''}</th>`:'';
+      return `<tr>${head}${buildCells(laneRes)}</tr>`;
+    }).join('');
   }).join('');
   return `<div style="margin-bottom:16px">
     <div style="font-size:12px;font-family:'Noto Serif JP',serif;margin-bottom:8px;font-weight:400">${fmtDate(date)} 席回し表</div>
