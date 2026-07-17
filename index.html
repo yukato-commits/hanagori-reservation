@@ -714,9 +714,10 @@ img{max-width:100%;}
   <div class="reserve-wrap">
     <div class="reserve-header"><div class="reserve-eyebrow">reservation</div><div class="reserve-title">ご予約</div></div>
     <div class="sys-notice" style="margin:0 0 22px;padding:14px 18px;border:1px solid #d9534f;border-radius:10px;background:#fdf5f4;color:#c0392b;font-size:12.5px;line-height:1.9;text-align:left">
-      <strong style="display:block;margin-bottom:4px">お知らせ</strong>
-      2026年7月8日午前9時45分ごろ予約システムにおける認証コード送信サービスに不具合が発生し、一時予約の受付ができない状態となっておりました。2026年7月8日午後１時現在完全に復旧しております。<br>
-      皆様にはご迷惑をお掛けして大変申し訳ありません。
+      <strong style="display:block;margin-bottom:4px">お知らせ（予約エラー発生のお詫びとご報告）</strong>
+      2026年7月17日、予約システムの不具合により、すでにご予約で埋まっている一部の時間帯が「空席」として表示され、お手続きの最後にエラーが表示される事象が発生しておりました。本件はシステム内の予約情報の読み込みに関する不具合が原因であり、現在は修正が完了しております。<br>
+      なお、本事象によるご予約の重複や、ご予約内容の消失は発生しておりません。エラーが表示されたお手続きは予約として登録されておりませんので、お手数ですが、最新の空席状況から改めてご予約くださいますようお願いいたします。ご予約が完了しているかご不明な場合は、予約確認メールに記載の予約番号をご確認いただくか、お問い合わせください。<br>
+      ご利用の皆様には多大なご迷惑をお掛けしましたことを、深くお詫び申し上げます。
     </div>
     <div class="step-bar" id="stepBar"></div>
     <div id="reserveContent"></div>
@@ -934,12 +935,20 @@ async function loadData() {
     const today = new Date();
     const from = new Date(today); from.setMonth(from.getMonth()-1);
     const to   = new Date(today); to.setMonth(to.getMonth()+3);
-    const {data:res,error:re} = await sb.from('reservations')
-      .select('*')
-      .gte('date', from.toISOString().slice(0,10))
-      .lte('date', to.toISOString().slice(0,10));
-    if(re) throw re;
-    CACHE.reservations = (res||[]).map(r=>({
+    // 1000行制限対策：ページングで全件取得（欠落すると幻の空き枠が出るため必須）
+    const _resAll=[]; const _PAGE=1000;
+    for(let _off=0; _off<20000; _off+=_PAGE){
+      const {data:_chunk,error:re} = await sb.from('reservations')
+        .select('*')
+        .gte('date', from.toISOString().slice(0,10))
+        .lte('date', to.toISOString().slice(0,10))
+        .order('id',{ascending:true})
+        .range(_off, _off+_PAGE-1);
+      if(re) throw re;
+      _resAll.push(...(_chunk||[]));
+      if(!_chunk || _chunk.length<_PAGE) break;
+    }
+    CACHE.reservations = _resAll.map(r=>({
       ...r,
       time: r.time.slice(0,5), // "11:00:00" → "11:00"
     }));
@@ -1658,9 +1667,15 @@ async function submitRes(){
     S.rStep=6;renderReserve();
   } catch(e) {
     await releaseHold();
-    const dup=/(duplicate|unique|23505|conflict)/i.test(e.message||'');
-    if(dup){alert('申し訳ありません。その時間は直前に予約が入りました。別の時間をお選びください。');S.rStep=2;renderReserve();}
-    else{alert('予約の保存に失敗しました。再度お試しください。\n'+e.message);}
+    const _msg=(e&&e.message)||'';
+    const dup=/(duplicate|unique|23505|conflict)/i.test(_msg);
+    const guard=(e&&e.code==='23514')||/重複|満席|受付前|休業日/.test(_msg);
+    if(dup||guard){
+      alert('申し訳ありません。ご選択の時間帯は直前に他のお客様のご予約で埋まりました。最新の空き状況を表示しますので、もう一度お選びください。');
+      try{ await loadData(); }catch(_e){}
+      S.rStep=0;renderReserve();
+    }
+    else{alert('予約の保存に失敗しました。再度お試しください。\n'+_msg);}
   } finally {
     S.submitting=false;
     if(_btn) _btn.disabled=false;
