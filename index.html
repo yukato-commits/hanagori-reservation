@@ -471,6 +471,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(253,250,246,
 .ecd-phase-label{position:absolute;top:-7px;left:-1px;z-index:6;white-space:nowrap;font-size:9px;line-height:1.4;padding:1px 7px;border-radius:8px;background:#8b6aaa;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18);font-family:'Noto Serif JP',serif;}
 .ecd-phase-label.pl-later{background:#8a8294;}
 .ecd-phase-label.pl-sched{background:#bf922f;}
+.sys-notice-details summary::-webkit-details-marker{display:none;}
+.sys-notice-details[open] .sys-notice-more{display:none;}
 .ecd-phase-label.pl-right{left:auto;right:-1px;}
 .ecal-days{overflow:visible;}
 .ecd.upcoming{overflow:visible;}
@@ -713,11 +715,19 @@ img{max-width:100%;}
 <div id="page-reserve" class="page" style="padding-top:68px">
   <div class="reserve-wrap">
     <div class="reserve-header"><div class="reserve-eyebrow">reservation</div><div class="reserve-title">ご予約</div></div>
-    <div class="sys-notice" style="margin:0 0 22px;padding:14px 18px;border:1px solid #d9534f;border-radius:10px;background:#fdf5f4;color:#c0392b;font-size:12.5px;line-height:1.9;text-align:left">
-      <strong style="display:block;margin-bottom:4px">お知らせ（予約エラー発生のお詫びとご報告）</strong>
-      2026年7月17日、予約システムの不具合により、すでにご予約で埋まっている一部の時間帯が「空席」として表示され、お手続きの最後にエラーが表示される事象が発生しておりました。本件はシステム内の予約情報の読み込みに関する不具合が原因であり、現在は修正が完了しております。<br>
-      なお、本事象によるご予約の重複や、ご予約内容の消失は発生しておりません。エラーが表示されたお手続きは予約として登録されておりませんので、お手数ですが、最新の空席状況から改めてご予約くださいますようお願いいたします。ご予約が完了しているかご不明な場合は、予約確認メールに記載の予約番号をご確認いただくか、お問い合わせください。<br>
-      ご利用の皆様には多大なご迷惑をお掛けしましたことを、深くお詫び申し上げます。
+    <div class="sys-notice" style="margin:0 0 22px;padding:12px 18px;border:1px solid #d9534f;border-radius:10px;background:#fdf5f4;color:#c0392b;font-size:12.5px;line-height:1.9;text-align:left">
+      <details class="sys-notice-details">
+        <summary style="cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px">
+          <strong>お知らせ</strong>
+          <span>予約エラー発生のお詫びとご報告（2026年7月17日）</span>
+          <span class="sys-notice-more" style="margin-left:auto;font-size:11px;text-decoration:underline;white-space:nowrap">詳細について ▾</span>
+        </summary>
+        <div style="margin-top:10px;border-top:1px dashed #e4b0aa;padding-top:10px">
+          2026年7月17日、予約システムの不具合により、すでにご予約で埋まっている一部の時間帯が「空席」として表示され、お手続きの最後にエラーが表示される事象が発生しておりました。本件はシステム内の予約情報の読み込みに関する不具合が原因であり、現在は修正が完了しております。<br>
+          なお、本事象によるご予約の重複や、ご予約内容の消失は発生しておりません。エラーが表示されたお手続きは予約として登録されておりませんので、お手数ですが、最新の空席状況から改めてご予約くださいますようお願いいたします。ご予約が完了しているかご不明な場合は、予約確認メールに記載の予約番号をご確認いただくか、お問い合わせください。<br>
+          ご利用の皆様には多大なご迷惑をお掛けしましたことを、深くお詫び申し上げます。
+        </div>
+      </details>
     </div>
     <div class="step-bar" id="stepBar"></div>
     <div id="reserveContent"></div>
