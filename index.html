@@ -2342,6 +2342,12 @@ function renderMenuDaily(){
         .filter(m => m.name)
         .map(m => ({ key: m.key, visible: true }));
     }
+    // 後からマスターに追加された新商品も、この日のリストに載せる（既定は非表示。トグルで表示→保存）
+    CACHE.masterMenus.filter(m => m.name).forEach(m => {
+      if(!ev.menus.some(dm => (dm.key||dm.name) === m.key)){
+        ev.menus.push({ key: m.key, visible: false });
+      }
+    });
   }
 
   const dayMenus = ev?.menus || [];
