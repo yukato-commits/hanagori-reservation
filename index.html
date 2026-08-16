@@ -1654,7 +1654,11 @@ async function submitRes(){
   if(!S.r.phone){alert('電話番号をご入力ください');return;}
   if(isApplyClosed(S.r.date)){alert('満席のためお申込みいただけません。');S.rStep=0;renderReserve();return;}
   if(dayPhase(S.r.date)){alert('この開催日はまだ予約受付前です（開催予定日）。');S.rStep=0;renderReserve();return;}
-  if(S.submitting) return; S.submitting=true;
+  if(S.submitting) return;
+  if(!Array.isArray(S.r.orders)||S.r.orders.length!==S.r.party||S.r.orders.some(x=>!String(x||'').trim())){
+    alert('かき氷メニューが選択されていません。お手数ですが、メニューをご選択のうえ確定してください。\n（メニューが表示されない場合は、時間をおいて再度お試しください）');
+    return;
+  } S.submitting=true;
   const _btn=document.getElementById('submitBtn'); if(_btn) _btn.disabled=true;
   showLoad('予約を確定しています...');
   try {
@@ -1934,6 +1938,7 @@ function adminCal(el){
       <option value="">シフト一括変更...</option>
       <option value="A">Aシフトに変更</option>
       <option value="B">Bシフトに変更</option>
+      <option value="C">Cシフトに変更</option>
     </select>
     <button onclick="bulkClearReservations()" style="background:var(--danger);color:white;border:none;padding:6px 16px;border-radius:100px;font-size:12px;cursor:pointer;font-family:'Noto Serif JP',serif">
       🗑 予約をクリア（${selResCount}件）
@@ -2486,14 +2491,21 @@ window.applyMenuBulkV2=async()=>{
   if(!S.adminMenuDate || !S.menuBulkDates.size) return;
   const srcMenus = JSON.parse(JSON.stringify(CACHE.eventDays[S.adminMenuDate]?.menus || []));
   showLoad(`${S.menuBulkDates.size}日に一括適用中...`);
+  const _applied=[]; const _skipped=[]; const _failed=[];
   for(const ds of S.menuBulkDates){
-    if(!CACHE.eventDays[ds]) continue;
-    CACHE.eventDays[ds].menus = JSON.parse(JSON.stringify(srcMenus));
-    await saveMenus(ds, CACHE.eventDays[ds].menus);
+    if(!CACHE.eventDays[ds]){ _skipped.push(ds); continue; }
+    try{
+      CACHE.eventDays[ds].menus = JSON.parse(JSON.stringify(srcMenus));
+      await saveMenus(ds, CACHE.eventDays[ds].menus);
+      _applied.push(ds);
+    }catch(e){ _failed.push(ds); console.error('menu bulk失敗:',ds,e); }
   }
   S.menuBulkDates.clear();
   hideLoad();
-  alert('一括適用しました ✓');
+  let msg=`一括適用しました ✓（${_applied.length}日）`;
+  if(_skipped.length) msg+=`\n\n★注意: ${_skipped.length}日はスキップされました（開催日データ未読込）→ ${_skipped.sort().join('、')}\n画面を再読み込みしてから、この日付にもう一度適用してください。`;
+  if(_failed.length) msg+=`\n\n★保存失敗: ${_failed.sort().join('、')}`;
+  alert(msg);
   renderAdminTab();
 };
 
